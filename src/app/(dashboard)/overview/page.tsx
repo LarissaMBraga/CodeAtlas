@@ -3,6 +3,7 @@ import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
 import SummaryCards from "@/components/dashboard/overview/SummaryCards";
 import RecentRepositories from "@/components/dashboard/overview/RecentRepositories";
+import GetStarted from "@/components/dashboard/overview/GetStarted";
 import { ArrowUpRight } from "lucide-react";
 
 export default function OverviewPage() {
@@ -43,33 +44,7 @@ export default function OverviewPage() {
 
           <section className="mt-8 grid gap-5 xl:grid-cols-[1.5fr_1fr]">
             <RecentRepositories />
-
-            <div className="rounded-xl border border-[#252530] bg-[#111117] p-6">
-              <h2 className="text-base font-semibold text-white">
-                Get started
-              </h2>
-
-              <p className="mt-1 text-xs text-[#777483]">
-                Your code intelligence journey starts here.
-              </p>
-
-              <div className="mt-7 space-y-5">
-                {[
-                  "Connect a GitHub repository",
-                  "Analyze your codebase",
-                  "Explore your architecture",
-                  "Investigate dependencies with AI",
-                ].map((step, index) => (
-                  <div key={step} className="flex items-center gap-3">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#383444] text-xs text-[#a98cff]">
-                      {index + 1}
-                    </div>
-
-                    <p className="text-xs text-[#aaa7b7]">{step}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <GetStarted />
           </section>
         </div>
       </main>
