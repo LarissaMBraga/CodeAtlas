@@ -1,28 +1,8 @@
 
 import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
-import { GitBranch, FolderGit2, Activity, ArrowUpRight } from "lucide-react";
-
-const metrics = [
-  {
-    label: "Repositories analyzed",
-    value: "0",
-    description: "Connect your first repository",
-    icon: FolderGit2,
-  },
-  {
-    label: "Dependencies mapped",
-    value: "0",
-    description: "Waiting for analysis",
-    icon: GitBranch,
-  },
-  {
-    label: "Code health score",
-    value: "--",
-    description: "No analysis available",
-    icon: Activity,
-  },
-];
+import SummaryCards from "@/components/dashboard/overview/SummaryCards";
+import { GitBranch, FolderGit2, ArrowUpRight } from "lucide-react";
 
 export default function OverviewPage() {
   return (
@@ -58,34 +38,7 @@ export default function OverviewPage() {
             </button>
           </div>
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {metrics.map((metric) => {
-              const Icon = metric.icon;
-
-              return (
-                <article
-                  key={metric.label}
-                  className="rounded-xl border border-[#252530] bg-[#111117] p-5 transition hover:border-[#9b7bff]/30"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-[#92919f]">{metric.label}</p>
-
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#9b7bff]/15 bg-[#9b7bff]/10">
-                      <Icon size={17} className="text-[#b7a1ff]" />
-                    </div>
-                  </div>
-
-                  <p className="mt-6 text-3xl font-semibold text-white">
-                    {metric.value}
-                  </p>
-
-                  <p className="mt-2 text-xs text-[#777483]">
-                    {metric.description}
-                  </p>
-                </article>
-              );
-            })}
-          </section>
+          <SummaryCards />
 
           <section className="mt-8 grid gap-5 xl:grid-cols-[1.5fr_1fr]">
             <div className="rounded-xl border border-[#252530] bg-[#111117] p-6">
