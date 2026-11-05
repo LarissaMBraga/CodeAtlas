@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -32,6 +33,8 @@ type Repository = {
 };
 
 export default function PublicRepositoryInput() {
+  const router = useRouter();
+
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [error, setError] = useState("");
   const [repository, setRepository] = useState<Repository | null>(null);
@@ -83,6 +86,21 @@ export default function PublicRepositoryInput() {
     } finally {
       setIsAnalyzing(false);
     }
+  }
+
+  function handleOpenAnalysis() {
+    if (!repository) return;
+
+    const [owner, repo] = repository.fullName.split("/");
+
+    if (!owner || !repo) {
+      setError("Invalid repository information.");
+      return;
+    }
+
+    router.push(
+      `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
+    );
   }
 
   return (
@@ -233,6 +251,15 @@ export default function PublicRepositoryInput() {
               </p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleOpenAnalysis}
+            className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#9b7bff] px-5 text-sm font-semibold text-white transition hover:bg-[#8966f0]"
+          >
+            Open repository analysis
+            <ArrowRight size={16} />
+          </button>
         </div>
       )}
 

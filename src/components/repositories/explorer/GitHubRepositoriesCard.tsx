@@ -176,10 +176,14 @@ export default function GitHubRepositoriesCard() {
         );
       }
 
+      const [owner, repo] = repository.fullName.split("/");
+
+      if (!owner || !repo) {
+        throw new Error("Invalid repository information.");
+      }
+
       router.push(
-        `/repositories?repository=${encodeURIComponent(
-          repository.fullName
-        )}`
+        `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
       );
     } catch (analysisError) {
       setError(
