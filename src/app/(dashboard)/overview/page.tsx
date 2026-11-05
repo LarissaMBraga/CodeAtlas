@@ -1,5 +1,6 @@
 
 import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
+import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
 import { GitBranch, FolderGit2, Activity, ArrowUpRight } from "lucide-react";
 
 const metrics = [
@@ -29,20 +30,7 @@ export default function OverviewPage() {
       <DashboardSidebar />
 
       <main className="min-h-screen lg:pl-[260px]">
-        <header className="flex h-[76px] items-center justify-between border-b border-[#252530] px-8">
-          <div>
-            <p className="text-xs text-[#777483]">Workspace / Overview</p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="hidden text-xs text-[#92919f] sm:block">
-              Your development workspace
-            </span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#9b7bff]/20 bg-[#9b7bff]/10 text-xs font-semibold text-[#c5b5ff]">
-              CA
-            </div>
-          </div>
-        </header>
+        <DashboardHeader />
 
         <div className="mx-auto max-w-[1440px] px-6 py-10 sm:px-8 lg:px-10">
           <div className="mb-10 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
