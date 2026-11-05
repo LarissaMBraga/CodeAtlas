@@ -2,7 +2,8 @@
 import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
 import SummaryCards from "@/components/dashboard/overview/SummaryCards";
-import { GitBranch, FolderGit2, ArrowUpRight } from "lucide-react";
+import RecentRepositories from "@/components/dashboard/overview/RecentRepositories";
+import { ArrowUpRight } from "lucide-react";
 
 export default function OverviewPage() {
   return (
@@ -41,35 +42,7 @@ export default function OverviewPage() {
           <SummaryCards />
 
           <section className="mt-8 grid gap-5 xl:grid-cols-[1.5fr_1fr]">
-            <div className="rounded-xl border border-[#252530] bg-[#111117] p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-white">
-                    Recent repositories
-                  </h2>
-                  <p className="mt-1 text-xs text-[#777483]">
-                    Your recently analyzed projects
-                  </p>
-                </div>
-
-                <FolderGit2 size={19} className="text-[#777483]" />
-              </div>
-
-              <div className="mt-8 flex min-h-[180px] flex-col items-center justify-center text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#9b7bff]/15 bg-[#9b7bff]/10">
-                  <GitBranch size={21} className="text-[#b7a1ff]" />
-                </div>
-
-                <p className="mt-4 text-sm font-medium text-white">
-                  No repositories yet
-                </p>
-
-                <p className="mt-2 max-w-xs text-xs leading-5 text-[#777483]">
-                  Connect a GitHub repository to start exploring its
-                  architecture and dependencies.
-                </p>
-              </div>
-            </div>
+            <RecentRepositories />
 
             <div className="rounded-xl border border-[#252530] bg-[#111117] p-6">
               <h2 className="text-base font-semibold text-white">
