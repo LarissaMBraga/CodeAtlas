@@ -62,7 +62,7 @@ export default function DashboardSidebar() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-7">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 [scrollbar-color:#594b78_#0d0d13] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#594b78] [&::-webkit-scrollbar-thumb:hover]:bg-[#9b7bff] [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-[#0d0d13]">
         <div className="mb-8 rounded-xl border border-[#9b7bff]/15 bg-gradient-to-br from-[#9b7bff]/10 to-transparent p-4">
           <div className="mb-2 flex items-center gap-2">
             <Sparkles size={14} className="text-[#b7a1ff]" />

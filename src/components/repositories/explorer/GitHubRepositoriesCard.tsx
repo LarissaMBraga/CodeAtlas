@@ -301,7 +301,7 @@ export default function GitHubRepositoriesCard() {
             No repositories match your search.
           </div>
         ) : (
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-4 overflow-x-auto pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(155,123,255,0.35)_transparent] [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#9b7bff]/35 [&::-webkit-scrollbar-thumb:hover]:bg-[#9b7bff]/80">
             {filteredRepositories.map((repository) => (
               <article
                 key={repository.id}
