@@ -3,6 +3,7 @@ import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
 import PublicRepositoryInput from "@/components/repositories/explorer/PublicRepositoryInput";
 import GitHubConnectionCard from "@/components/repositories/explorer/GitHubConnectionCard";
+import GitHubRepositoriesCard from "@/components/repositories/explorer/GitHubRepositoriesCard";
 import { FolderGit2, Sparkles } from "lucide-react";
 
 export default function RepositoriesPage() {
@@ -33,6 +34,10 @@ export default function RepositoriesPage() {
           <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
             <PublicRepositoryInput />
             <GitHubConnectionCard />
+          </div>
+
+          <div className="mt-8">
+            <GitHubRepositoriesCard />
           </div>
 
           <section className="mt-8 rounded-xl border border-[#252530] bg-[#111117] p-6">

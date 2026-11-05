@@ -1,4 +1,5 @@
 
+import Link from "next/link";
 import DashboardSidebar from "@/components/dashboard/sidebar/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/header/DashboardHeader";
 import SummaryCards from "@/components/dashboard/overview/SummaryCards";
@@ -31,13 +32,13 @@ export default function OverviewPage() {
               </p>
             </div>
 
-            <button
-              type="button"
+            <Link
+              href="/repositories"
               className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[#9b7bff] px-5 text-sm font-semibold text-white transition hover:bg-[#8966f0]"
             >
               Connect repository
               <ArrowUpRight size={16} />
-            </button>
+            </Link>
           </div>
 
           <SummaryCards />

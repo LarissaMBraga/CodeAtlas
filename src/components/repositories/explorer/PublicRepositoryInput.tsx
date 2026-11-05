@@ -2,27 +2,87 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Link2, LoaderCircle } from "lucide-react";
+import Image from "next/image";
+import {
+  ArrowRight,
+  Link2,
+  LoaderCircle,
+  Star,
+  GitFork,
+  Code2,
+  ExternalLink,
+  AlertCircle,
+} from "lucide-react";
+
+type Repository = {
+  id: number;
+  name: string;
+  fullName: string;
+  description: string | null;
+  url: string;
+  language: string | null;
+  stars: number;
+  forks: number;
+  defaultBranch: string;
+  isPrivate: boolean;
+  owner: {
+    username: string;
+    avatarUrl: string;
+  };
+};
 
 export default function PublicRepositoryInput() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [error, setError] = useState("");
+  const [repository, setRepository] = useState<Repository | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const normalizedUrl = repositoryUrl.trim().replace(/\/+$/, "");
     const repositoryPattern =
-      /^https?:\/\/github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+$/;
+      /^https?:\/\/github\.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9_.-]+(?:\.git)?$/;
 
     if (!repositoryPattern.test(normalizedUrl)) {
       setError("Enter a valid GitHub repository URL.");
+      setRepository(null);
       return;
     }
 
     setError("");
+    setRepository(null);
     setIsAnalyzing(true);
+
+    try {
+      const response = await fetch("/api/github/repository", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repositoryUrl: normalizedUrl,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Unable to retrieve repository information."
+        );
+      }
+
+      setRepository(data.repository);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Something went wrong. Please try again."
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   return (
@@ -58,7 +118,7 @@ export default function PublicRepositoryInput() {
             onChange={(event) => {
               setRepositoryUrl(event.target.value);
               setError("");
-              setIsAnalyzing(false);
+              setRepository(null);
             }}
             placeholder="https://github.com/owner/repository"
             className="h-11 min-w-0 flex-1 rounded-lg border border-[#302d3b] bg-[#09090d] px-4 text-sm text-white outline-none transition placeholder:text-[#555260] focus:border-[#9b7bff]/60 focus:ring-2 focus:ring-[#9b7bff]/10"
@@ -72,7 +132,7 @@ export default function PublicRepositoryInput() {
             {isAnalyzing ? (
               <>
                 <LoaderCircle size={16} className="animate-spin" />
-                Preparing...
+                Searching...
               </>
             ) : (
               <>
@@ -84,15 +144,101 @@ export default function PublicRepositoryInput() {
         </div>
 
         {error && (
-          <p className="mt-3 text-xs text-red-400" role="alert">
-            {error}
-          </p>
+          <div
+            role="alert"
+            className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-400"
+          >
+            <AlertCircle size={15} className="mt-0.5 shrink-0" />
+            <p>{error}</p>
+          </div>
         )}
-
-        <p className="mt-3 text-[11px] text-[#656270]">
-          Only public repositories are supported in this access mode.
-        </p>
       </form>
+
+      {repository && (
+        <div className="mt-7 rounded-xl border border-[#383444] bg-[#191720] p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <Image
+                src={repository.owner.avatarUrl}
+                alt={`${repository.owner.username} avatar`}
+                width={44}
+                height={44}
+                unoptimized
+                className="h-11 w-11 rounded-full border border-[#383444]"
+              />
+
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">
+                  {repository.fullName}
+                </p>
+                <p className="mt-1 text-xs text-[#777483]">
+                  Public repository
+                </p>
+              </div>
+            </div>
+
+            <a
+              href={repository.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-[#b7a1ff] transition hover:text-white"
+            >
+              View on GitHub
+              <ExternalLink size={13} />
+            </a>
+          </div>
+
+          <p className="mt-4 text-xs leading-5 text-[#aaa7b7]">
+            {repository.description || "No description provided."}
+          </p>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg border border-[#302d3b] bg-[#111117] p-3">
+              <div className="flex items-center gap-1.5 text-[#92919f]">
+                <Code2 size={13} />
+                <span className="text-[10px]">Language</span>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-white">
+                {repository.language || "Not specified"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-[#302d3b] bg-[#111117] p-3">
+              <div className="flex items-center gap-1.5 text-[#92919f]">
+                <Star size={13} />
+                <span className="text-[10px]">Stars</span>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-white">
+                {repository.stars.toLocaleString("en-US")}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-[#302d3b] bg-[#111117] p-3">
+              <div className="flex items-center gap-1.5 text-[#92919f]">
+                <GitFork size={13} />
+                <span className="text-[10px]">Forks</span>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-white">
+                {repository.forks.toLocaleString("en-US")}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-[#302d3b] bg-[#111117] p-3">
+              <div className="flex items-center gap-1.5 text-[#92919f]">
+                <Code2 size={13} />
+                <span className="text-[10px]">Default branch</span>
+              </div>
+              <p className="mt-2 truncate text-xs font-semibold text-white">
+                {repository.defaultBranch}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-[11px] text-[#656270]">
+        Only public repositories are supported in this access mode.
+      </p>
     </section>
   );
 }
