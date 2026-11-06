@@ -1,12 +1,15 @@
-
 "use client";
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, LoaderCircle } from "lucide-react";
 import AuthInput from "@/components/auth/AuthInput";
 import PasswordInput from "@/components/auth/PasswordInput";
+import {
+  AuthFormFeedback,
+  AuthSubmitButton,
+  getAuthFieldErrors,
+} from "@/components/auth/AuthFormParts";
 import { loginSchema } from "@/features/auth/schemas/loginSchema";
 import { signInWithEmail } from "@/features/auth/services/authService";
 
@@ -37,17 +40,7 @@ export default function LoginForm() {
     });
 
     if (!result.success) {
-      const nextErrors: FieldErrors = {};
-
-      result.error.issues.forEach((issue) => {
-        const field = issue.path[0] as keyof FieldErrors;
-
-        if (field && !nextErrors[field]) {
-          nextErrors[field] = issue.message;
-        }
-      });
-
-      setErrors(nextErrors);
+      setErrors(getAuthFieldErrors<keyof FieldErrors>(result.error.issues));
       return;
     }
 
@@ -108,32 +101,13 @@ export default function LoginForm() {
         </div>
       </div>
 
-      {feedback && (
-        <p
-          role="alert"
-          className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-xs leading-5 text-red-300"
-        >
-          {feedback}
-        </p>
-      )}
+      <AuthFormFeedback message={feedback} />
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#9b7bff] text-sm font-semibold text-white transition hover:bg-[#8966f0] focus:outline-none focus:ring-2 focus:ring-[#b7a1ff] focus:ring-offset-2 focus:ring-offset-[#111117] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {loading ? (
-          <>
-            <LoaderCircle size={17} className="animate-spin" />
-            Signing in...
-          </>
-        ) : (
-          <>
-            Sign in
-            <ArrowRight size={16} />
-          </>
-        )}
-      </button>
+      <AuthSubmitButton
+        loading={loading}
+        loadingText="Signing in..."
+        buttonText="Sign in"
+      />
     </form>
   );
 }

@@ -1,11 +1,15 @@
-
 "use client";
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, LoaderCircle } from "lucide-react";
 import AuthInput from "@/components/auth/AuthInput";
 import PasswordInput from "@/components/auth/PasswordInput";
+import {
+  AuthFormFeedback,
+  AuthSubmitButton,
+  getAuthFieldErrors,
+  type AuthFeedbackType,
+} from "@/components/auth/AuthFormParts";
 import { registerSchema } from "@/features/auth/schemas/registerSchema";
 import { signUpWithEmail } from "@/features/auth/services/authService";
 
@@ -21,9 +25,8 @@ export default function RegisterForm() {
 
   const [errors, setErrors] = useState<FieldErrors>({});
   const [feedback, setFeedback] = useState("");
-  const [feedbackType, setFeedbackType] = useState<"success" | "error">(
-    "success"
-  );
+  const [feedbackType, setFeedbackType] =
+    useState<AuthFeedbackType>("success");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -43,17 +46,7 @@ export default function RegisterForm() {
     });
 
     if (!result.success) {
-      const nextErrors: FieldErrors = {};
-
-      result.error.issues.forEach((issue) => {
-        const field = issue.path[0] as keyof FieldErrors;
-
-        if (field && !nextErrors[field]) {
-          nextErrors[field] = issue.message;
-        }
-      });
-
-      setErrors(nextErrors);
+      setErrors(getAuthFieldErrors<keyof FieldErrors>(result.error.issues));
       return;
     }
 
@@ -136,36 +129,13 @@ export default function RegisterForm() {
         uppercase letter, a lowercase letter and a number.
       </p>
 
-      {feedback && (
-        <p
-          role={feedbackType === "error" ? "alert" : "status"}
-          className={`rounded-lg border p-3 text-xs leading-5 ${
-            feedbackType === "error"
-              ? "border-red-400/20 bg-red-400/10 text-red-300"
-              : "border-[#9b7bff]/20 bg-[#9b7bff]/10 text-[#c5b5ff]"
-          }`}
-        >
-          {feedback}
-        </p>
-      )}
+      <AuthFormFeedback message={feedback} type={feedbackType} />
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#9b7bff] text-sm font-semibold text-white transition hover:bg-[#8966f0] focus:outline-none focus:ring-2 focus:ring-[#b7a1ff] focus:ring-offset-2 focus:ring-offset-[#111117] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {loading ? (
-          <>
-            <LoaderCircle size={17} className="animate-spin" />
-            Creating account...
-          </>
-        ) : (
-          <>
-            Create account
-            <ArrowRight size={16} />
-          </>
-        )}
-      </button>
+      <AuthSubmitButton
+        loading={loading}
+        loadingText="Creating account..."
+        buttonText="Create account"
+      />
     </form>
   );
 }
