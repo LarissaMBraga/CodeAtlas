@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import ArchitectureGraph from "./ArchitectureGraph";
 import {
   ArrowLeft,
   ExternalLink,
@@ -59,7 +60,7 @@ type Analysis = {
 
 const sections = [
   { name: "Overview", id: "overview", icon: LayoutDashboard, status: "Available" },
-  { name: "Architecture", id: "architecture", icon: Network, status: "Coming soon" },
+  { name: "Architecture", id: "architecture", icon: Network, status: "Available" },
   { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Coming soon" },
   { name: "Languages", id: "languages", icon: Code2, status: "Coming soon" },
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Coming soon" },
@@ -263,7 +264,8 @@ export default function RepositoryAnalysisContent() {
         <div className="-mb-px flex min-w-max gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {sections.map((section) => {
             const Icon = section.icon;
-            const isAvailable = section.id === "overview";
+            const isAvailable =
+              section.id === "overview" || section.id === "architecture";
 
             return (
               <a
@@ -454,6 +456,18 @@ export default function RepositoryAnalysisContent() {
 
       {sections.slice(1).map((section) => {
         const Icon = section.icon;
+
+        if (section.id === "architecture") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <ArchitectureGraph owner={owner} repo={repo} />
+            </section>
+          );
+        }
 
         return (
           <section
