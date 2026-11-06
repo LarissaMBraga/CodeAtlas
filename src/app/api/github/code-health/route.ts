@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import ts from "typescript";
 import { githubApiFetch } from "@/lib/github/app-auth";
@@ -190,6 +191,61 @@ function addIssue(
     line,
     recommendation,
   });
+}
+
+function analyzeTypeScriptComments(
+  sourceFile: ts.SourceFile,
+  path: string,
+  issues: Issue[]
+) {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    path.endsWith(".tsx") || path.endsWith(".jsx")
+      ? ts.LanguageVariant.JSX
+      : ts.LanguageVariant.Standard,
+    sourceFile.text
+  );
+
+  const markerPattern = /\b(TODO|FIXME|HACK)\b/gi;
+
+  let token = scanner.scan();
+
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (
+      token === ts.SyntaxKind.SingleLineCommentTrivia ||
+      token === ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      const commentText = scanner.getTokenText();
+      const commentStart = scanner.getTokenPos();
+
+      let match: RegExpExecArray | null;
+
+      markerPattern.lastIndex = 0;
+
+      while ((match = markerPattern.exec(commentText)) !== null) {
+        const line =
+          sourceFile.getLineAndCharacterOfPosition(
+            commentStart + match.index
+          ).line + 1;
+
+        const marker = match[1].toUpperCase();
+
+        addIssue(
+          issues,
+          path,
+          line,
+          "code-smell",
+          marker === "FIXME" ? "medium" : "low",
+          `${marker} comment`,
+          `A ${marker} marker was found.`,
+          "Review the note and resolve it or document why it remains."
+        );
+      }
+    }
+
+    token = scanner.scan();
+  }
 }
 
 function calculateFunctionComplexity(node: ts.Node) {
@@ -419,30 +475,7 @@ function analyzeFile(
 
   visit(sourceFile);
 
-  const commentPatterns = [
-    { pattern: /\bTODO\b/gi, title: "TODO comment", category: "code-smell" },
-    { pattern: /\bFIXME\b/gi, title: "FIXME comment", category: "code-smell" },
-    { pattern: /\bHACK\b/gi, title: "HACK comment", category: "code-smell" },
-  ];
-
-  for (const item of commentPatterns) {
-    let match: RegExpExecArray | null;
-
-    while ((match = item.pattern.exec(content)) !== null) {
-      const line = content.slice(0, match.index).split(/\r?\n/).length;
-
-      addIssue(
-        issues,
-        path,
-        line,
-        item.category,
-        item.title === "FIXME comment" ? "medium" : "low",
-        item.title,
-        `A ${item.title.split(" ")[0]} marker was found.`,
-        "Review the note and resolve it or document why it remains."
-      );
-    }
-  }
+  analyzeTypeScriptComments(sourceFile, path, issues);
 
   if (lines > 500) {
     addIssue(
