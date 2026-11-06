@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ArchitectureGraph from "./ArchitectureGraph";
+import CodeExplorer from "./CodeExplorer";
 import {
   ArrowLeft,
   ExternalLink,
@@ -61,7 +62,7 @@ type Analysis = {
 const sections = [
   { name: "Overview", id: "overview", icon: LayoutDashboard, status: "Available" },
   { name: "Architecture", id: "architecture", icon: Network, status: "Available" },
-  { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Coming soon" },
+  { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Available" },
   { name: "Languages", id: "languages", icon: Code2, status: "Coming soon" },
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Coming soon" },
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Coming soon" },
@@ -265,7 +266,9 @@ export default function RepositoryAnalysisContent() {
           {sections.map((section) => {
             const Icon = section.icon;
             const isAvailable =
-              section.id === "overview" || section.id === "architecture";
+              section.id === "overview" ||
+              section.id === "architecture" ||
+              section.id === "code-explorer";
 
             return (
               <a
@@ -465,6 +468,23 @@ export default function RepositoryAnalysisContent() {
               className="mt-8 scroll-mt-6"
             >
               <ArchitectureGraph owner={owner} repo={repo} />
+            </section>
+          );
+        }
+
+        if (section.id === "code-explorer") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <CodeExplorer
+                owner={owner}
+                repo={repo}
+                defaultBranch={repository.defaultBranch}
+                files={files}
+              />
             </section>
           );
         }
