@@ -30,6 +30,25 @@ function getExtension(path: string) {
 }
 
 function isSupportedPath(path: string) {
+  const fileName = path.split("/").pop()?.toLowerCase() ?? "";
+
+  const ignoredFiles = new Set([
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "bun.lockb",
+    "composer.lock",
+    "cargo.lock",
+    "poetry.lock",
+    "pipfile.lock",
+    "gemfile.lock",
+  ]);
+
+  if (ignoredFiles.has(fileName)) {
+    return false;
+  }
+
   const language = getLanguageByPath(path);
 
   if (!language) {
