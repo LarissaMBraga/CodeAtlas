@@ -2,13 +2,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ComponentProps } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ArchitectureGraph from "./ArchitectureGraph";
 import CodeExplorer from "./CodeExplorer";
 import LanguagesAnalysis from "./LanguagesAnalysis";
 import DependenciesAnalysis from "./DependenciesAnalysis";
-import RepositoryOverview from "./RepositoryOverview";
+import RepositoryOverview from "@/components/RepositoryOverview";
+import CodeHealthAnalysis from "@/components/CodeHealthAnalysis";
 import {
   ArrowLeft,
   ExternalLink,
@@ -107,13 +109,15 @@ type DependenciesAnalysisData = {
   truncated: boolean;
 };
 
+type CodeHealthData = ComponentProps<typeof CodeHealthAnalysis>["data"];
+
 const sections = [
   { name: "Overview", id: "overview", icon: LayoutDashboard, status: "Available" },
   { name: "Architecture", id: "architecture", icon: Network, status: "Available" },
   { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Available" },
   { name: "Languages", id: "languages", icon: Code2, status: "Available" },
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Available" },
-  { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Coming soon" },
+  { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Available" },
   { name: "Security", id: "security", icon: ShieldCheck, status: "Coming soon" },
   { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Coming soon" },
   { name: "AI Investigator", id: "ai-investigator", icon: Bot, status: "Coming soon" },
@@ -133,6 +137,10 @@ export default function RepositoryAnalysisContent() {
     useState<LanguageAnalysisData | null>(null);
   const [dependenciesAnalysis, setDependenciesAnalysis] =
     useState<DependenciesAnalysisData | null>(null);
+  const [codeHealthData, setCodeHealthData] =
+    useState<CodeHealthData | null>(null);
+  const [isCodeHealthLoading, setIsCodeHealthLoading] = useState(false);
+  const [codeHealthError, setCodeHealthError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -191,6 +199,66 @@ export default function RepositoryAnalysisContent() {
       isMounted = false;
     };
   }, [owner, repo]);
+
+  useEffect(() => {
+    if (!repository) {
+      return;
+    }
+
+    const defaultBranch = repository.defaultBranch;
+    const controller = new AbortController();
+
+    async function loadCodeHealth() {
+      setIsCodeHealthLoading(true);
+      setCodeHealthError("");
+      setCodeHealthData(null);
+
+      try {
+        const response = await fetch("/api/github/code-health", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            owner,
+            repo,
+            ref: defaultBranch,
+          }),
+          signal: controller.signal,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Unable to analyze repository code health."
+          );
+        }
+
+        setCodeHealthData(result);
+      } catch (loadError) {
+        if (loadError instanceof Error && loadError.name === "AbortError") {
+          return;
+        }
+
+        setCodeHealthError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Unable to analyze repository code health."
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsCodeHealthLoading(false);
+        }
+      }
+    }
+
+    void loadCodeHealth();
+
+    return () => {
+      controller.abort();
+    };
+  }, [owner, repo, repository]);
 
   if (isLoading) {
     return (
@@ -286,7 +354,8 @@ export default function RepositoryAnalysisContent() {
               section.id === "architecture" ||
               section.id === "code-explorer" ||
               section.id === "languages" ||
-              section.id === "dependencies";
+              section.id === "dependencies" ||
+              section.id === "code-health";
 
             return (
               <a
@@ -374,6 +443,44 @@ export default function RepositoryAnalysisContent() {
               className="mt-8 scroll-mt-6"
             >
               <DependenciesAnalysis analysis={dependenciesAnalysis} />
+            </section>
+          );
+        }
+
+        if (section.id === "code-health") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              {isCodeHealthLoading && (
+                <div className="flex min-h-[180px] items-center justify-center rounded-xl border border-[#252530] bg-[#111117]">
+                  <div className="flex items-center gap-3 text-sm text-[#92919f]">
+                    <LoaderCircle
+                      size={20}
+                      className="animate-spin text-[#b7a1ff]"
+                    />
+                    Analyzing repository code health...
+                  </div>
+                </div>
+              )}
+
+              {!isCodeHealthLoading && codeHealthError && (
+                <div className="flex min-h-[180px] flex-col items-center justify-center rounded-xl border border-red-500/20 bg-[#111117] px-6 text-center">
+                  <AlertCircle size={26} className="text-red-400" />
+                  <h2 className="mt-4 text-sm font-semibold text-white">
+                    Unable to analyze code health
+                  </h2>
+                  <p className="mt-2 max-w-md text-xs leading-5 text-[#92919f]">
+                    {codeHealthError}
+                  </p>
+                </div>
+              )}
+
+              {!isCodeHealthLoading && !codeHealthError && codeHealthData && (
+                <CodeHealthAnalysis data={codeHealthData} />
+              )}
             </section>
           );
         }

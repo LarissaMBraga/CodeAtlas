@@ -1,11 +1,7 @@
 
 import { NextResponse } from "next/server";
 import ts from "typescript";
-
-const GITHUB_HEADERS = {
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-};
+import { githubApiFetch } from "@/lib/github/app-auth";
 
 const MAX_FILES = 100;
 const MAX_FILE_SIZE = 300 * 1024;
@@ -494,10 +490,9 @@ async function fetchGitHubFile(
 
   url.searchParams.set("ref", ref);
 
-  const response = await fetch(url, {
-    headers: GITHUB_HEADERS,
-    cache: "no-store",
-  });
+  const response = await githubApiFetch(
+    `${url.pathname}${url.search}`
+  );
 
   if (!response.ok) return null;
 
@@ -658,12 +653,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const repositoryResponse = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-      {
-        headers: GITHUB_HEADERS,
-        cache: "no-store",
-      }
+    const repositoryResponse = await githubApiFetch(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
     );
 
     if (repositoryResponse.status === 404) {
@@ -678,7 +669,7 @@ export async function POST(request: Request) {
       repositoryResponse.status === 429
     ) {
       return NextResponse.json(
-        { error: "GitHub API rate limit reached. Please try again later." },
+        { error: "GitHub API rate limit reached or repository access denied. Check the GitHub App installation permissions and selected repositories." },
         { status: 429 }
       );
     }
@@ -690,12 +681,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const treeResponse = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-      {
-        headers: GITHUB_HEADERS,
-        cache: "no-store",
-      }
+    const treeResponse = await githubApiFetch(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
     );
 
     if (
@@ -703,7 +690,7 @@ export async function POST(request: Request) {
       treeResponse.status === 429
     ) {
       return NextResponse.json(
-        { error: "GitHub API rate limit reached. Please try again later." },
+        { error: "GitHub API rate limit reached or repository access denied. Check the GitHub App installation permissions and selected repositories." },
         { status: 429 }
       );
     }
@@ -866,15 +853,21 @@ export async function POST(request: Request) {
     }).length;
 
     const fileMetrics: FileMetric[] = analyzedFiles.map(
-      (file) => ({
-        path: file.path,
-        lines: file.lines,
-        size: file.size,
-        complexity: file.complexity,
-        functions: file.functions.length,
-        score: getFileScore(file.issues),
-        issues: file.issues.length,
-      })
+      (file) => {
+        const fileIssues = issues.filter(
+          (issue) => issue.file === file.path
+        );
+
+        return {
+          path: file.path,
+          lines: file.lines,
+          size: file.size,
+          complexity: file.complexity,
+          functions: file.functions.length,
+          score: getFileScore(fileIssues),
+          issues: fileIssues.length,
+        };
+      }
     );
 
     const result: AnalysisResult = {

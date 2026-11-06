@@ -1,6 +1,6 @@
-
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import path from "node:path";
+import { githubApiFetch } from "@/lib/github/app-auth";
 
 const SOURCE_EXTENSIONS = [
   ".ts",
@@ -37,7 +37,7 @@ type AnalyzedFile = {
   content: string;
 };
 
-type GitHubPublicRepository = {
+type GitHubRepository = {
   id: number;
   name: string;
   full_name: string;
@@ -48,6 +48,19 @@ type GitHubPublicRepository = {
   forks_count: number;
   default_branch: string;
   updated_at: string;
+  owner: {
+    login: string;
+  };
+};
+
+type GitHubInstallationRepositories = {
+  total_count: number;
+  repositories: GitHubRepository[];
+};
+
+type GitHubBlob = {
+  content: string;
+  encoding: string;
 };
 
 function isSourceFile(filePath: string) {
@@ -125,31 +138,28 @@ function isReactComponent(file: AnalyzedFile) {
 async function fetchSourceFile(
   owner: string,
   repo: string,
-  branch: string,
   file: GitHubTreeFile
 ): Promise<AnalyzedFile | null> {
-  const branchPath = branch
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
-
-  const filePath = file.path
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
-
-  const response = await fetch(
-    `https://raw.githubusercontent.com/${owner}/${repo}/${branchPath}/${filePath}`,
-    { cache: "no-store" }
+  const response = await githubApiFetch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/blobs/${file.sha}`
   );
 
   if (!response.ok) {
     return null;
   }
 
+  const blob: GitHubBlob = await response.json();
+
+  if (blob.encoding !== "base64" || !blob.content) {
+    return null;
+  }
+
   return {
     path: file.path,
-    content: await response.text(),
+    content: Buffer.from(
+      blob.content.replace(/\s/g, ""),
+      "base64"
+    ).toString("utf8"),
   };
 }
 
@@ -165,38 +175,40 @@ export async function GET(request: Request) {
       );
     }
 
-    const response = await fetch(
-      `https://api.github.com/users/${encodeURIComponent(username)}/repos?type=public&sort=updated&per_page=100`,
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        cache: "no-store",
-      }
+    const response = await githubApiFetch(
+      "/installation/repositories?per_page=100"
     );
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: "Unable to retrieve public repositories from GitHub." },
+        { error: "Unable to retrieve repositories from the GitHub App installation." },
         { status: response.status }
       );
     }
 
-    const data: GitHubPublicRepository[] = await response.json();
+    const data: GitHubInstallationRepositories = await response.json();
 
-    const repositories = data.map((repository) => ({
-      id: repository.id,
-      name: repository.name,
-      fullName: repository.full_name,
-      description: repository.description,
-      url: repository.html_url,
-      language: repository.language,
-      stars: repository.stargazers_count,
-      forks: repository.forks_count,
-      defaultBranch: repository.default_branch,
-      updatedAt: repository.updated_at,
-    }));
+    const repositories = data.repositories
+  .filter(
+    (repository) =>
+      repository.owner.login.toLowerCase() === username.toLowerCase()
+  )
+  .map((repository) => ({
+    id: repository.id,
+    name: repository.name,
+    fullName: repository.full_name,
+    description: repository.description,
+    url: repository.html_url,
+    language: repository.language,
+    stars: repository.stargazers_count,
+    forks: repository.forks_count,
+    defaultBranch: repository.default_branch,
+    updatedAt: repository.updated_at,
+  }))
+  .sort(
+    (a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
 
     return NextResponse.json({
       username,
@@ -206,7 +218,7 @@ export async function GET(request: Request) {
     console.error("GitHub repositories error:", error);
 
     return NextResponse.json(
-      { error: "Unable to load public repositories." },
+      { error: "Unable to load repositories." },
       { status: 500 }
     );
   }
@@ -262,14 +274,8 @@ export async function POST(request: Request) {
 
     const [owner, repo] = segments;
 
-    const headers = {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    };
-
-    const repositoryResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}`,
-      { headers, cache: "no-store" }
+    const repositoryResponse = await githubApiFetch(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
     );
 
     if (!repositoryResponse.ok) {
@@ -282,9 +288,8 @@ export async function POST(request: Request) {
     const repositoryData = await repositoryResponse.json();
     const branch = repositoryData.default_branch;
 
-    const treeResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
-      { headers, cache: "no-store" }
+    const treeResponse = await githubApiFetch(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`
     );
 
     if (!treeResponse.ok) {
@@ -308,7 +313,7 @@ export async function POST(request: Request) {
 
       const results = await Promise.all(
         batch.map((file) =>
-          fetchSourceFile(owner, repo, branch, file).catch(() => null)
+          fetchSourceFile(owner, repo, file).catch(() => null)
         )
       );
 
