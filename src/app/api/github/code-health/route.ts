@@ -90,8 +90,18 @@ type AnalysisResult = {
   files: FileMetric[];
   coverage: {
     supportedLanguages: string[];
+    supportedFiles: number;
     unsupportedFiles: number;
+    ignoredDirectoryFiles: number;
+    emptyFiles: number;
     oversizedFiles: number;
+    fileLimitExceeded: number;
+    totalSizeLimitExceeded: number;
+    fetchFailedFiles: number;
+    maxFiles: number;
+    maxFileSize: number;
+    maxTotalSize: number;
+    concurrency: number;
     truncated: boolean;
     analyzedBytes: number;
   };
@@ -728,26 +738,56 @@ export async function POST(request: Request) {
 
     const treeData = await treeResponse.json();
 
-    const allFiles: SourceFile[] = (treeData.tree || [])
+    const treeItems: unknown[] = Array.isArray(treeData.tree)
+      ? treeData.tree
+      : [];
+
+    const repositoryFiles = treeItems.filter(
+      (item): item is Record<string, unknown> =>
+        isRecord(item) &&
+        item.type === "blob" &&
+        typeof item.path === "string"
+    );
+
+    const ignoredDirectoryFiles = repositoryFiles.filter(
+      (item) => isIgnoredPath(item.path as string)
+    ).length;
+
+    const nonIgnoredFiles = repositoryFiles.filter(
+      (item) => !isIgnoredPath(item.path as string)
+    );
+
+    const unsupportedFiles = nonIgnoredFiles.filter(
+      (item) =>
+        !SUPPORTED_EXTENSIONS.has(
+          getExtension(item.path as string)
+        )
+    ).length;
+
+    const allFiles: SourceFile[] = nonIgnoredFiles
       .filter(
-        (item: unknown): item is {
-          path: string;
-          type: string;
-          sha: string;
-          size?: number;
-        } =>
-          isRecord(item) &&
-          item.type === "blob" &&
-          typeof item.path === "string" &&
+        (item) =>
           typeof item.sha === "string" &&
-          SUPPORTED_EXTENSIONS.has(getExtension(item.path)) &&
-          !isIgnoredPath(item.path)
+          SUPPORTED_EXTENSIONS.has(
+            getExtension(item.path as string)
+          )
       )
-      .map((item: SourceFile) => ({
-        path: item.path,
-        sha: item.sha,
-        size: item.size || 0,
+      .map((item) => ({
+        path: item.path as string,
+        sha: item.sha as string,
+        size:
+          typeof item.size === "number" && item.size > 0
+            ? item.size
+            : 0,
       }));
+
+    const emptyFiles = allFiles.filter(
+      (file) => file.size === 0
+    ).length;
+
+    const oversizedFiles = allFiles.filter(
+      (file) => file.size > MAX_FILE_SIZE
+    ).length;
 
     const eligibleFiles = allFiles.filter(
       (file) => file.size > 0 && file.size <= MAX_FILE_SIZE
@@ -755,48 +795,62 @@ export async function POST(request: Request) {
 
     const selectedFiles = eligibleFiles.slice(0, MAX_FILES);
 
-    const oversizedFiles = allFiles.filter(
-      (file) => file.size > MAX_FILE_SIZE
-    ).length;
-
-    let analyzedBytes = 0;
-
-    const contents = await mapWithConcurrency(
-      selectedFiles,
-      CONCURRENCY,
-      async (file) => {
-        if (analyzedBytes + file.size > MAX_TOTAL_SIZE) {
-          return null;
-        }
-
-        analyzedBytes += file.size;
-
-        return {
-          file,
-          content: await fetchGitHubFile(
-            owner,
-            repo,
-            file.path,
-            ref
-          ),
-        };
-      }
+    const fileLimitExceeded = Math.max(
+      0,
+      eligibleFiles.length - MAX_FILES
     );
 
-    const analyzedFiles = contents
-      .filter(
-        (item): item is {
-          file: SourceFile;
-          content: string;
-        } => item !== null && item.content !== null
+    let reservedBytes = 0;
+    let totalSizeLimitExceeded = 0;
+
+    const budgetSelectedFiles = selectedFiles.filter((file) => {
+      if (reservedBytes + file.size > MAX_TOTAL_SIZE) {
+        totalSizeLimitExceeded += 1;
+        return false;
+      }
+
+      reservedBytes += file.size;
+      return true;
+    });
+
+    const contents = await mapWithConcurrency(
+      budgetSelectedFiles,
+      CONCURRENCY,
+      async (file) => ({
+        file,
+        content: await fetchGitHubFile(
+          owner,
+          repo,
+          file.path,
+          ref
+        ),
+      })
+    );
+
+    const fetchFailedFiles = contents.filter(
+      (item) => item.content === null
+    ).length;
+
+    const successfulContents = contents.filter(
+      (item): item is {
+        file: SourceFile;
+        content: string;
+      } => item.content !== null
+    );
+
+    const analyzedBytes = successfulContents.reduce(
+      (total, item) =>
+        total + Buffer.byteLength(item.content, "utf-8"),
+      0
+    );
+
+    const analyzedFiles = successfulContents.map((item) =>
+      analyzeFile(
+        item.file.path,
+        item.content,
+        item.file.size
       )
-      .map((item) =>
-        analyzeFile(
-          item.file.path,
-          item.content,
-          item.file.size
-        )
-      );
+    );
 
     const issues = analyzedFiles.flatMap(
       (file) => file.issues
@@ -966,19 +1020,24 @@ export async function POST(request: Request) {
           "JSX",
           "TSX",
         ],
-        unsupportedFiles: (treeData.tree || []).filter(
-          (item: unknown) =>
-            isRecord(item) &&
-            item.type === "blob" &&
-            typeof item.path === "string" &&
-            !isIgnoredPath(item.path) &&
-            !SUPPORTED_EXTENSIONS.has(getExtension(item.path))
-        ).length,
+        supportedFiles: allFiles.length,
+        unsupportedFiles,
+        ignoredDirectoryFiles,
+        emptyFiles,
         oversizedFiles,
+        fileLimitExceeded,
+        totalSizeLimitExceeded,
+        fetchFailedFiles,
+        maxFiles: MAX_FILES,
+        maxFileSize: MAX_FILE_SIZE,
+        maxTotalSize: MAX_TOTAL_SIZE,
+        concurrency: CONCURRENCY,
         truncated:
           treeData.truncated === true ||
-          allFiles.length > MAX_FILES ||
-          analyzedFiles.length < selectedFiles.length,
+          oversizedFiles > 0 ||
+          fileLimitExceeded > 0 ||
+          totalSizeLimitExceeded > 0 ||
+          fetchFailedFiles > 0,
         analyzedBytes,
       },
       categories,

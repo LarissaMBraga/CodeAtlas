@@ -85,8 +85,18 @@ type CodeHealthData = {
   files: FileMetric[];
   coverage: {
     supportedLanguages: string[];
+    supportedFiles: number;
     unsupportedFiles: number;
+    ignoredDirectoryFiles: number;
+    emptyFiles: number;
     oversizedFiles: number;
+    fileLimitExceeded: number;
+    totalSizeLimitExceeded: number;
+    fetchFailedFiles: number;
+    maxFiles: number;
+    maxFileSize: number;
+    maxTotalSize: number;
+    concurrency: number;
     truncated: boolean;
     analyzedBytes: number;
   };
@@ -217,6 +227,41 @@ export default function CodeHealthAnalysis({
       value: data.metrics.testFiles,
       description: `${data.metrics.filesWithTests} source files with matching tests`,
       icon: TestTube2,
+    },
+  ];
+
+  const coverageDetails = [
+    {
+      label: "Supported source files",
+      value: data.coverage.supportedFiles,
+    },
+    {
+      label: "Ignored directory files",
+      value: data.coverage.ignoredDirectoryFiles,
+    },
+    {
+      label: "Unsupported extensions",
+      value: data.coverage.unsupportedFiles,
+    },
+    {
+      label: "Empty files",
+      value: data.coverage.emptyFiles,
+    },
+    {
+      label: "Oversized files",
+      value: data.coverage.oversizedFiles,
+    },
+    {
+      label: "File limit exceeded",
+      value: data.coverage.fileLimitExceeded,
+    },
+    {
+      label: "Total size limit exceeded",
+      value: data.coverage.totalSizeLimitExceeded,
+    },
+    {
+      label: "GitHub fetch failures",
+      value: data.coverage.fetchFailedFiles,
     },
   ];
 
@@ -519,7 +564,7 @@ export default function CodeHealthAnalysis({
 
           <div className="mt-5 space-y-3">
             {data.functions.length > 0 ? (
-              data.functions.slice(0, 6).map((item, index) => (
+              data.functions.slice(0, 6).map((item) => (
                 <div
                   key={`${item.file}:${item.line}:${item.name}`}
                   className="rounded-lg border border-[#252530] bg-[#0d0c12] p-3"
@@ -665,15 +710,15 @@ export default function CodeHealthAnalysis({
             </p>
           </div>
           <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
-            <p className="text-[11px] text-[#777483]">Skipped files</p>
+            <p className="text-[11px] text-[#777483]">Analyzed files</p>
             <p className="mt-2 text-xl font-semibold text-white">
-              {data.summary.skippedFiles}
+              {data.summary.analyzedFiles}
             </p>
           </div>
           <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
-            <p className="text-[11px] text-[#777483]">Oversized files</p>
+            <p className="text-[11px] text-[#777483]">Skipped source files</p>
             <p className="mt-2 text-xl font-semibold text-white">
-              {data.coverage.oversizedFiles}
+              {data.summary.skippedFiles}
             </p>
           </div>
           <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
@@ -681,6 +726,67 @@ export default function CodeHealthAnalysis({
             <p className="mt-2 text-xl font-semibold text-white">
               {formatBytes(data.coverage.analyzedBytes)}
             </p>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <p className="text-xs font-medium text-[#c8c4d2]">
+            File coverage breakdown
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {coverageDetails.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4"
+              >
+                <p className="text-[11px] text-[#777483]">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-xl font-semibold text-white">
+                  {item.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <p className="text-xs font-medium text-[#c8c4d2]">
+            Analysis limits
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
+              <p className="text-[11px] text-[#777483]">
+                Maximum files
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {data.coverage.maxFiles}
+              </p>
+            </div>
+            <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
+              <p className="text-[11px] text-[#777483]">
+                Maximum file size
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {formatBytes(data.coverage.maxFileSize)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
+              <p className="text-[11px] text-[#777483]">
+                Maximum total size
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {formatBytes(data.coverage.maxTotalSize)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4">
+              <p className="text-[11px] text-[#777483]">
+                Concurrent requests
+              </p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {data.coverage.concurrency}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -711,18 +817,34 @@ export default function CodeHealthAnalysis({
                 Partial analysis
               </p>
               <p className="mt-1 text-xs leading-5 text-[#92919f]">
-                Some repository files could not be included in this scan.
-                Results represent only the files successfully analyzed.
+                Some supported repository files could not be included in this
+                scan because of file or size limits, GitHub retrieval failures,
+                or an incomplete repository tree. Results represent only the
+                files successfully analyzed.
               </p>
             </div>
           </div>
         )}
 
-        {data.coverage.unsupportedFiles > 0 && (
-          <p className="mt-4 text-[11px] text-[#777483]">
-            {data.coverage.unsupportedFiles} files use unsupported extensions
-            and were excluded from the analysis.
-          </p>
+        {(data.coverage.unsupportedFiles > 0 ||
+          data.coverage.ignoredDirectoryFiles > 0) && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-[#302d3b] bg-[#191720] p-4">
+            <Info size={15} className="mt-0.5 shrink-0 text-[#b7a1ff]" />
+            <div className="space-y-1">
+              {data.coverage.unsupportedFiles > 0 && (
+                <p className="text-xs leading-5 text-[#92919f]">
+                  {data.coverage.unsupportedFiles} files use unsupported
+                  extensions and were excluded from the analysis.
+                </p>
+              )}
+              {data.coverage.ignoredDirectoryFiles > 0 && (
+                <p className="text-xs leading-5 text-[#92919f]">
+                  {data.coverage.ignoredDirectoryFiles} files belong to ignored
+                  directories such as node_modules, .next, dist and build.
+                </p>
+              )}
+            </div>
+          </div>
         )}
       </article>
     </section>
