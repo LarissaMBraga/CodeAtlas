@@ -123,6 +123,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+
+async function isRateLimitResponse(response: Response) {
+  if (response.status === 429) {
+    return true;
+  }
+
+  if (response.status !== 403) {
+    return false;
+  }
+
+  if (
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  ) {
+    return true;
+  }
+
+  try {
+    const data = await response.clone().json();
+
+    return (
+      typeof data.message === "string" &&
+      data.message.toLowerCase().includes("rate limit")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getExtension(path: string) {
   const name = path.split("/").pop() || "";
   const index = name.lastIndexOf(".");
@@ -485,26 +514,35 @@ function analyzeFile(
   };
 }
 
+
 async function fetchGitHubFile(
   owner: string,
   repo: string,
   path: string,
   ref: string
 ): Promise<string | null> {
-  const url = new URL(
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`
-  );
+  const encodedPath = path
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
 
-  url.searchParams.set("ref", ref);
+  const endpoint =
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
+    `/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`;
 
-  const response = await githubApiFetch(
-    `${url.pathname}${url.search}`
-  );
+  const response = await githubApiFetch(endpoint);
 
-  if (!response.ok) return null;
+  if (await isRateLimitResponse(response)) {
+    throw new Error("GITHUB_RATE_LIMIT");
+  }
+
+  if (response.status === 403) {
+    throw new Error("GITHUB_ACCESS_DENIED");
+  }
+
+  if (!response.ok) {
+    return null;
+  }
 
   const data: unknown = await response.json();
 
@@ -522,6 +560,8 @@ async function fetchGitHubFile(
   ).toString("utf-8");
 }
 
+
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -529,15 +569,23 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let index = 0;
+  let stopped = false;
+  let failure: unknown = null;
 
   async function worker() {
-    while (true) {
+    while (!stopped) {
       const current = index;
       index += 1;
 
       if (current >= items.length) return;
 
-      results[current] = await mapper(items[current]);
+      try {
+        results[current] = await mapper(items[current]);
+      } catch (error) {
+        stopped = true;
+        failure = error;
+        return;
+      }
     }
   }
 
@@ -548,8 +596,13 @@ async function mapWithConcurrency<T, R>(
     )
   );
 
+  if (failure) {
+    throw failure;
+  }
+
   return results;
 }
+
 
 function findDuplicatedBlocks(files: AnalyzedFile[]) {
   const occurrences = new Map<
@@ -641,19 +694,24 @@ function getFileScore(issues: Issue[]) {
   );
 }
 
-function calculateHealthScore(issues: Issue[]) {
-  const deductions = {
-    critical: 15,
+function calculateHealthScore(issues: Issue[], totalLines: number) {
+  const weights = {
+    critical: 20,
     high: 7,
-    medium: 3,
-    low: 1,
+    medium: 2,
+    low: 0.5,
     info: 0,
   };
 
-  const score = 100 - issues.reduce(
-    (total, issue) => total + deductions[issue.severity],
+  const weightedIssues = issues.reduce(
+    (total, issue) => total + weights[issue.severity],
     0
   );
+
+  const analyzedKilolines = Math.max(totalLines / 1000, 1);
+  const issueDensity = weightedIssues / analyzedKilolines;
+
+  const score = 100 * Math.exp(-issueDensity / 100);
 
   return Math.max(0, Math.min(100, Math.round(score)));
 }
@@ -691,12 +749,35 @@ export async function POST(request: Request) {
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
     );
 
-    if (repositoryResponse.status === 404) {
-      return NextResponse.json(
-        { error: "Repository not found or inaccessible." },
-        { status: 404 }
-      );
-    }
+    
+if (await isRateLimitResponse(repositoryResponse)) {
+  return NextResponse.json(
+    { error: "GitHub API rate limit reached. Please try again later." },
+    { status: 429 }
+  );
+}
+
+if (repositoryResponse.status === 403) {
+  return NextResponse.json(
+    { error: "GitHub denied access to this repository. Check the GitHub App installation permissions." },
+    { status: 403 }
+  );
+}
+
+if (repositoryResponse.status === 404) {
+  return NextResponse.json(
+    { error: "Repository not found or inaccessible." },
+    { status: 404 }
+  );
+}
+
+if (!repositoryResponse.ok) {
+  return NextResponse.json(
+    { error: "Unable to retrieve repository information." },
+    { status: 502 }
+  );
+}
+
 
     if (
       repositoryResponse.status === 403 ||
@@ -716,8 +797,36 @@ export async function POST(request: Request) {
     }
 
     const treeResponse = await githubApiFetch(
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
-    );
+  `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
+);
+
+if (await isRateLimitResponse(treeResponse)) {
+  return NextResponse.json(
+    { error: "GitHub API rate limit reached. Please try again later." },
+    { status: 429 }
+  );
+}
+
+if (treeResponse.status === 404) {
+  return NextResponse.json(
+    { error: "Repository branch or file tree not found." },
+    { status: 404 }
+  );
+}
+
+if (treeResponse.status === 403) {
+  return NextResponse.json(
+    { error: "GitHub denied access to the repository tree." },
+    { status: 403 }
+  );
+}
+
+if (!treeResponse.ok) {
+  return NextResponse.json(
+    { error: "Unable to retrieve repository files." },
+    { status: 502 }
+  );
+}
 
     if (
       treeResponse.status === 403 ||
@@ -949,7 +1058,7 @@ export async function POST(request: Request) {
     );
 
     const result: AnalysisResult = {
-      healthScore: calculateHealthScore(issues),
+      healthScore: calculateHealthScore(issues, totalLines),
       summary: {
         analyzedFiles: analyzedFiles.length,
         skippedFiles: allFiles.length - analyzedFiles.length,

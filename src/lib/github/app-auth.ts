@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿
+import "server-only";
 import { sign } from "node:crypto";
 
 const GITHUB_API_URL = "https://api.github.com";
@@ -6,6 +7,7 @@ const GITHUB_API_VERSION = "2022-11-28";
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
+let tokenPromise: Promise<string> | null = null;
 
 function encodeBase64Url(value: string) {
   return Buffer.from(value).toString("base64url");
@@ -52,11 +54,7 @@ function createAppJwt() {
   return `${unsignedToken}.${signature}`;
 }
 
-export async function getGitHubInstallationToken() {
-  if (cachedToken && tokenExpiresAt > Date.now() + 60_000) {
-    return cachedToken;
-  }
-
+async function createInstallationToken() {
   const installationId = process.env.GITHUB_INSTALLATION_ID;
 
   if (!installationId) {
@@ -95,20 +93,107 @@ export async function getGitHubInstallationToken() {
   return cachedToken;
 }
 
+export async function getGitHubInstallationToken() {
+  if (cachedToken && tokenExpiresAt > Date.now() + 60_000) {
+    return cachedToken;
+  }
+
+  if (!tokenPromise) {
+    tokenPromise = createInstallationToken().finally(() => {
+      tokenPromise = null;
+    });
+  }
+
+  return tokenPromise;
+}
+
+function createPublicHeaders(init: RequestInit) {
+  const headers = new Headers(init.headers);
+
+  headers.set("Accept", "application/vnd.github+json");
+  headers.set("X-GitHub-Api-Version", GITHUB_API_VERSION);
+  headers.delete("Authorization");
+
+  return headers;
+}
+
+async function canFallbackToPublic(response: Response) {
+  if (response.status === 404) {
+    return true;
+  }
+
+  if (response.status !== 403) {
+    return false;
+  }
+
+  if (
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  ) {
+    return false;
+  }
+
+  try {
+    const data = await response.clone().json();
+
+    return (
+      typeof data.message === "string" &&
+      data.message.toLowerCase().includes(
+        "resource not accessible by integration"
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function githubApiFetch(
   endpoint: string,
   init: RequestInit = {}
 ) {
-  const token = await getGitHubInstallationToken();
+  const url = `${GITHUB_API_URL}${endpoint}`;
+
+  let token: string;
+
+  try {
+    token = await getGitHubInstallationToken();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (
+        error.message === "GitHub App credentials are not configured." ||
+        error.message === "GitHub App installation ID is not configured."
+      )
+    ) {
+      return fetch(url, {
+        ...init,
+        headers: createPublicHeaders(init),
+        cache: "no-store",
+      });
+    }
+
+    throw error;
+  }
+
   const headers = new Headers(init.headers);
 
   headers.set("Accept", "application/vnd.github+json");
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("X-GitHub-Api-Version", GITHUB_API_VERSION);
 
-  return fetch(`${GITHUB_API_URL}${endpoint}`, {
+  const response = await fetch(url, {
     ...init,
     headers,
+    cache: "no-store",
+  });
+
+  if (!(await canFallbackToPublic(response))) {
+    return response;
+  }
+
+  return fetch(url, {
+    ...init,
+    headers: createPublicHeaders(init),
     cache: "no-store",
   });
 }

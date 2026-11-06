@@ -1,5 +1,6 @@
 
 import { NextResponse } from "next/server";
+import { githubApiFetch } from "@/lib/github/app-auth";
 
 const MAX_ANALYSIS_FILES = 80;
 const BATCH_SIZE = 10;
@@ -26,6 +27,7 @@ const IGNORED_DIRECTORIES = [
 
 type GitHubRepository = {
   default_branch: string;
+  private: boolean;
 };
 
 type GitHubTreeItem = {
@@ -33,6 +35,11 @@ type GitHubTreeItem = {
   type: string;
   sha: string;
   size?: number;
+};
+
+type GitHubBlob = {
+  content?: string;
+  encoding?: string;
 };
 
 type ArchitectureNode = {
@@ -151,19 +158,43 @@ function detectNodeType(
   return hasJsx && hasExportedComponent ? "component" : "module";
 }
 
-async function fetchGitHubJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "CodeAtlas",
-    },
-    cache: "no-store",
-  });
+async function isRateLimitResponse(response: Response) {
+  if (response.status === 429) {
+    return true;
+  }
+
+  if (response.status !== 403) {
+    return false;
+  }
+
+  if (
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  ) {
+    return true;
+  }
+
+  try {
+    const data = await response.clone().json();
+
+    return (
+      typeof data.message === "string" &&
+      data.message.toLowerCase().includes("rate limit")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function fetchGitHubJson<T>(endpoint: string): Promise<T> {
+  const response = await githubApiFetch(endpoint);
+
+  if (await isRateLimitResponse(response)) {
+    throw new Error("GITHUB_RATE_LIMIT");
+  }
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API request failed (${response.status}).`
-    );
+    throw new Error(`GitHub API request failed (${response.status}).`);
   }
 
   return response.json() as Promise<T>;
@@ -172,34 +203,72 @@ async function fetchGitHubJson<T>(url: string): Promise<T> {
 async function fetchSourceFile(
   owner: string,
   repository: string,
+  path: string,
   branch: string,
-  path: string
+  sha: string,
+  isPrivate: boolean
 ) {
-  const url = `https://raw.githubusercontent.com/${owner}/${repository}/${encodeURIComponent(branch)}/${path
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}`;
+  if (!isPrivate) {
+    const encodedBranch = branch
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
 
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      "User-Agent": "CodeAtlas",
-    },
-  });
+    const encodedPath = path
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+
+    const url = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/${encodedBranch}/${encodedPath}`;
+
+    const response = await fetch(url, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.text();
+  }
+
+  const response = await githubApiFetch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/git/blobs/${encodeURIComponent(sha)}`
+  );
+
+  if (await isRateLimitResponse(response)) {
+    throw new Error("GITHUB_RATE_LIMIT");
+  }
 
   if (!response.ok) {
     return null;
   }
 
-  return response.text();
+  const blob: GitHubBlob = await response.json();
+
+  if (
+    typeof blob.content !== "string" ||
+    blob.encoding !== "base64"
+  ) {
+    return null;
+  }
+
+  return Buffer.from(
+    blob.content.replace(/\s/g, ""),
+    "base64"
+  ).toString("utf-8");
 }
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const repositoryUrl = body.repositoryUrl;
+    const body: unknown = await request.json();
 
-    if (typeof repositoryUrl !== "string") {
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      !("repositoryUrl" in body) ||
+      typeof body.repositoryUrl !== "string"
+    ) {
       return NextResponse.json(
         { error: "A valid repository URL is required." },
         { status: 400 }
@@ -209,7 +278,7 @@ export async function POST(request: Request) {
     let parsedUrl: URL;
 
     try {
-      parsedUrl = new URL(repositoryUrl);
+      parsedUrl = new URL(body.repositoryUrl);
     } catch {
       return NextResponse.json(
         { error: "The repository URL is invalid." },
@@ -218,8 +287,11 @@ export async function POST(request: Request) {
     }
 
     if (
-      parsedUrl.hostname !== "github.com" &&
-      parsedUrl.hostname !== "www.github.com"
+      !["https:", "http:"].includes(parsedUrl.protocol) ||
+      !["github.com", "www.github.com"].includes(parsedUrl.hostname) ||
+      parsedUrl.port ||
+      parsedUrl.username ||
+      parsedUrl.password
     ) {
       return NextResponse.json(
         { error: "Only GitHub repositories are supported." },
@@ -231,19 +303,35 @@ export async function POST(request: Request) {
       .split("/")
       .filter(Boolean);
 
-    if (segments.length < 2) {
+    if (
+      segments.length !== 2 ||
+      !/^[a-zA-Z0-9-]+$/.test(segments[0]) ||
+      !/^[a-zA-Z0-9_.-]+$/.test(segments[1])
+    ) {
       return NextResponse.json(
-        { error: "The repository URL must include an owner and repository name." },
+        {
+          error:
+            "The repository URL must include a valid owner and repository name.",
+        },
         { status: 400 }
       );
     }
 
     const owner = segments[0];
-    const repository = segments[1].replace(/\.git$/, "");
+    const repository = segments[1].replace(/\.git$/i, "");
 
-    const repositoryData = await fetchGitHubJson<GitHubRepository>(
-      `https://api.github.com/repos/${owner}/${repository}`
-    );
+    if (!repository) {
+      return NextResponse.json(
+        { error: "The repository name is invalid." },
+        { status: 400 }
+      );
+    }
+
+    const repositoryEndpoint =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
+
+    const repositoryData =
+      await fetchGitHubJson<GitHubRepository>(repositoryEndpoint);
 
     const branch = repositoryData.default_branch;
 
@@ -251,14 +339,17 @@ export async function POST(request: Request) {
       tree: GitHubTreeItem[];
       truncated: boolean;
     }>(
-      `https://api.github.com/repos/${owner}/${repository}/git/trees/${encodeURIComponent(
-        branch
-      )}?recursive=1`
+      `${repositoryEndpoint}/git/trees/${encodeURIComponent(branch)}?recursive=1`
     );
 
-    const sourceFiles = treeData.tree
-      .filter((item) => item.type === "blob" && isSourceFile(item.path))
-      .slice(0, MAX_ANALYSIS_FILES);
+    const allSourceFiles = treeData.tree.filter(
+      (item) => item.type === "blob" && isSourceFile(item.path)
+    );
+
+    const sourceFiles = allSourceFiles.slice(
+      0,
+      MAX_ANALYSIS_FILES
+    );
 
     const availableFiles = new Set(
       sourceFiles.map((file) => file.path)
@@ -266,18 +357,27 @@ export async function POST(request: Request) {
 
     const contents = new Map<string, string>();
 
-    for (let index = 0; index < sourceFiles.length; index += BATCH_SIZE) {
-      const batch = sourceFiles.slice(index, index + BATCH_SIZE);
+    for (
+      let index = 0;
+      index < sourceFiles.length;
+      index += BATCH_SIZE
+    ) {
+      const batch = sourceFiles.slice(
+        index,
+        index + BATCH_SIZE
+      );
 
       const results = await Promise.all(
         batch.map(async (file) => ({
           path: file.path,
-          content: await fetchSourceFile(
-            owner,
-            repository,
-            branch,
-            file.path
-          ),
+         content: await fetchSourceFile(
+  owner,
+  repository,
+  file.path,
+  branch,
+  file.sha,
+  repositoryData.private
+),
         }))
       );
 
@@ -351,13 +451,23 @@ export async function POST(request: Request) {
         totalConnections: edges.length,
         truncated:
           treeData.truncated ||
-          treeData.tree.filter(
-            (item) => item.type === "blob" && isSourceFile(item.path)
-          ).length > MAX_ANALYSIS_FILES,
+          allSourceFiles.length > MAX_ANALYSIS_FILES,
         maxFiles: MAX_ANALYSIS_FILES,
       },
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "GITHUB_RATE_LIMIT"
+    ) {
+      return NextResponse.json(
+        {
+          error: "GitHub API rate limit reached. Please try again later.",
+        },
+        { status: 429 }
+      );
+    }
+
     console.error("Architecture analysis error:", error);
 
     return NextResponse.json(

@@ -1,12 +1,36 @@
 
 import { NextResponse } from "next/server";
-
-const GITHUB_HEADERS = {
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-};
+import { githubApiFetch } from "@/lib/github/app-auth";
 
 const MAX_FILE_SIZE = 500 * 1024;
+
+async function isRateLimitResponse(response: Response) {
+  if (response.status === 429) {
+    return true;
+  }
+
+  if (response.status !== 403) {
+    return false;
+  }
+
+  if (
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  ) {
+    return true;
+  }
+
+  try {
+    const data = await response.clone().json();
+
+    return (
+      typeof data.message === "string" &&
+      data.message.toLowerCase().includes("rate limit")
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -37,7 +61,9 @@ export async function POST(request: Request) {
       !/^[a-zA-Z0-9_.-]+$/.test(repo) ||
       !/^[a-zA-Z0-9._/-]+$/.test(ref) ||
       path.startsWith("/") ||
-      path.split("/").some((part) => !part || part === "." || part === "..")
+      path.split("/").some(
+        (part) => !part || part === "." || part === ".."
+      )
     ) {
       return NextResponse.json(
         { error: "Invalid repository or file information." },
@@ -45,19 +71,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiUrl = new URL(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path
-        .split("/")
-        .map(encodeURIComponent)
-        .join("/")}`
-    );
+    const encodedPath = path
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
 
-    apiUrl.searchParams.set("ref", ref);
+    const endpoint =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
+      `/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`;
 
-    const response = await fetch(apiUrl, {
-      headers: GITHUB_HEADERS,
-      cache: "no-store",
-    });
+    const response = await githubApiFetch(endpoint);
+
+    if (await isRateLimitResponse(response)) {
+      return NextResponse.json(
+        { error: "GitHub API rate limit reached. Please try again later." },
+        { status: 429 }
+      );
+    }
 
     if (response.status === 404) {
       return NextResponse.json(
@@ -66,10 +96,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (response.status === 403 || response.status === 429) {
+    if (response.status === 403) {
       return NextResponse.json(
-        { error: "GitHub API rate limit reached. Please try again later." },
-        { status: 429 }
+        { error: "GitHub denied access to this file." },
+        { status: 403 }
       );
     }
 

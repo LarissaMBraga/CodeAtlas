@@ -1,5 +1,6 @@
 
 import { NextResponse } from "next/server";
+import { githubApiFetch } from "@/lib/github/app-auth";
 
 const SOURCE_EXTENSIONS = [
   ".ts",
@@ -40,6 +41,7 @@ const LANGUAGE_BY_EXTENSION: Record<string, string> = {
 
 const MAX_FILES = 200;
 const MAX_PACKAGE_MANIFESTS = 20;
+const MANIFEST_CONCURRENCY = 4;
 
 type DependencyCategory =
   | "production"
@@ -85,6 +87,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value)
+  );
+}
+
+async function isRateLimitResponse(response: Response) {
+  if (response.status === 429) {
+    return true;
+  }
+
+  if (response.status !== 403) {
+    return false;
+  }
+
+  if (
+    response.headers.get("x-ratelimit-remaining") === "0" ||
+    response.headers.has("retry-after")
+  ) {
+    return true;
+  }
+
+  try {
+    const data = await response.clone().json();
+
+    return (
+      typeof data.message === "string" &&
+      data.message.toLowerCase().includes("rate limit")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function createRateLimitResponse(response: Response) {
+  const retryAfter = response.headers.get("retry-after");
+  const resetAt = response.headers.get("x-ratelimit-reset");
+
+  return NextResponse.json(
+    {
+      error: "GitHub API rate limit reached. Please try again later.",
+      retryAfter: retryAfter ? Number(retryAfter) : null,
+      resetAt: resetAt ? Number(resetAt) : null,
+    },
+    {
+      status: 429,
+    }
+  );
+}
+
+function createPermissionResponse() {
+  return NextResponse.json(
+    {
+      error:
+        "GitHub denied access to this repository. Check the GitHub App installation permissions.",
+    },
+    {
+      status: 403,
+    }
   );
 }
 
@@ -146,16 +204,15 @@ async function fetchPackageManifest(
   owner: string,
   repository: string,
   manifest: GitHubTreeItem,
-  headers: Record<string, string>,
   allPaths: Set<string>
 ): Promise<PackageManifestAnalysis | null> {
-  const response = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/git/blobs/${encodeURIComponent(manifest.sha)}`,
-    {
-      headers,
-      cache: "no-store",
-    }
+  const response = await githubApiFetch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/git/blobs/${encodeURIComponent(manifest.sha)}`
   );
+
+  if (await isRateLimitResponse(response)) {
+    throw new Error("GITHUB_RATE_LIMIT");
+  }
 
   if (!response.ok) {
     return null;
@@ -228,9 +285,51 @@ async function fetchPackageManifest(
       optionalCount: optional.length,
       dependencies,
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "GITHUB_RATE_LIMIT"
+    ) {
+      throw error;
+    }
+
     return null;
   }
+}
+
+async function fetchManifests(
+  owner: string,
+  repository: string,
+  manifests: GitHubTreeItem[],
+  allPaths: Set<string>
+) {
+  const results: (PackageManifestAnalysis | null)[] = [];
+
+  for (
+    let index = 0;
+    index < manifests.length;
+    index += MANIFEST_CONCURRENCY
+  ) {
+    const batch = manifests.slice(
+      index,
+      index + MANIFEST_CONCURRENCY
+    );
+
+    const batchResults = await Promise.all(
+      batch.map((manifest) =>
+        fetchPackageManifest(
+          owner,
+          repository,
+          manifest,
+          allPaths
+        )
+      )
+    );
+
+    results.push(...batchResults);
+  }
+
+  return results;
 }
 
 export async function POST(request: Request) {
@@ -300,18 +399,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const headers = {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    };
+    const repositoryEndpoint =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}`;
 
-    const githubResponse = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}`,
-      {
-        headers,
-        cache: "no-store",
-      }
-    );
+    const githubResponse = await githubApiFetch(repositoryEndpoint);
 
     if (githubResponse.status === 404) {
       return NextResponse.json(
@@ -320,14 +411,12 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      githubResponse.status === 403 ||
-      githubResponse.status === 429
-    ) {
-      return NextResponse.json(
-        { error: "GitHub API rate limit reached. Please try again later." },
-        { status: 429 }
-      );
+    if (await isRateLimitResponse(githubResponse)) {
+      return createRateLimitResponse(githubResponse);
+    }
+
+    if (githubResponse.status === 403) {
+      return createPermissionResponse();
     }
 
     if (!githubResponse.ok) {
@@ -339,22 +428,16 @@ export async function POST(request: Request) {
 
     const data = await githubResponse.json();
 
-    const treeResponse = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/git/trees/${encodeURIComponent(data.default_branch)}?recursive=1`,
-      {
-        headers,
-        cache: "no-store",
-      }
+    const treeResponse = await githubApiFetch(
+      `${repositoryEndpoint}/git/trees/${encodeURIComponent(data.default_branch)}?recursive=1`
     );
 
-    if (
-      treeResponse.status === 403 ||
-      treeResponse.status === 429
-    ) {
-      return NextResponse.json(
-        { error: "GitHub API rate limit reached. Please try again later." },
-        { status: 429 }
-      );
+    if (await isRateLimitResponse(treeResponse)) {
+      return createRateLimitResponse(treeResponse);
+    }
+
+    if (treeResponse.status === 403) {
+      return createPermissionResponse();
     }
 
     if (!treeResponse.ok) {
@@ -389,13 +472,17 @@ export async function POST(request: Request) {
         size: file.size ?? 0,
       }));
 
-    const languagesResponse = await fetch(
-      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/languages`,
-      {
-        headers,
-        cache: "no-store",
-      }
+    const languagesResponse = await githubApiFetch(
+      `${repositoryEndpoint}/languages`
     );
+
+    if (await isRateLimitResponse(languagesResponse)) {
+      return createRateLimitResponse(languagesResponse);
+    }
+
+    if (languagesResponse.status === 403) {
+      return createPermissionResponse();
+    }
 
     let languageBytes: Record<string, number> = {};
     let languageAnalysisAvailable = false;
@@ -452,16 +539,11 @@ export async function POST(request: Request) {
       MAX_PACKAGE_MANIFESTS
     );
 
-    const manifestResults = await Promise.all(
-      selectedManifests.map((manifest) =>
-        fetchPackageManifest(
-          owner,
-          repositoryName,
-          manifest,
-          headers,
-          allPaths
-        )
-      )
+    const manifestResults = await fetchManifests(
+      owner,
+      repositoryName,
+      selectedManifests,
+      allPaths
     );
 
     const manifests = manifestResults
@@ -537,7 +619,19 @@ export async function POST(request: Request) {
           allSourceFiles.length > MAX_FILES,
       },
     });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "GITHUB_RATE_LIMIT"
+    ) {
+      return NextResponse.json(
+        {
+          error: "GitHub API rate limit reached. Please try again later.",
+        },
+        { status: 429 }
+      );
+    }
+
     return NextResponse.json(
       {
         error:
