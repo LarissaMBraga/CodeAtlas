@@ -1,26 +1,8 @@
-﻿import { NextResponse } from "next/server";
+﻿
+import { NextResponse } from "next/server";
 import path from "node:path";
 import { githubApiFetch } from "@/lib/github/app-auth";
-
-const SOURCE_EXTENSIONS = [
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".vue",
-  ".svelte",
-];
-
-const IGNORED_DIRECTORIES = [
-  "node_modules/",
-  ".next/",
-  "dist/",
-  "build/",
-  "coverage/",
-  "vendor/",
-];
+import { isSourceFile } from "@/lib/github/source-files";
 
 const MAX_ANALYSIS_FILES = 80;
 const BATCH_SIZE = 10;
@@ -63,19 +45,6 @@ type GitHubBlob = {
   encoding: string;
 };
 
-function isSourceFile(filePath: string) {
-  const normalizedPath = filePath.replace(/\\/g, "/");
-
-  return (
-    SOURCE_EXTENSIONS.some((extension) =>
-      normalizedPath.endsWith(extension)
-    ) &&
-    !IGNORED_DIRECTORIES.some((directory) =>
-      normalizedPath.includes(directory)
-    )
-  );
-}
-
 function extractImports(content: string) {
   const imports = new Set<string>();
 
@@ -113,10 +82,26 @@ function resolveImport(
 
   const candidates = [
     normalizedBase,
-    ...SOURCE_EXTENSIONS.map(
-      (extension) => `${normalizedBase}${extension}`
-    ),
-    ...SOURCE_EXTENSIONS.map((extension) =>
+    ...[
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".vue",
+      ".svelte",
+    ].map((extension) => `${normalizedBase}${extension}`),
+    ...[
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".vue",
+      ".svelte",
+    ].map((extension) =>
       path.posix.join(normalizedBase, `index${extension}`)
     ),
   ];
@@ -181,7 +166,10 @@ export async function GET(request: Request) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: "Unable to retrieve repositories from the GitHub App installation." },
+        {
+          error:
+            "Unable to retrieve repositories from the GitHub App installation.",
+        },
         { status: response.status }
       );
     }
@@ -189,26 +177,27 @@ export async function GET(request: Request) {
     const data: GitHubInstallationRepositories = await response.json();
 
     const repositories = data.repositories
-  .filter(
-    (repository) =>
-      repository.owner.login.toLowerCase() === username.toLowerCase()
-  )
-  .map((repository) => ({
-    id: repository.id,
-    name: repository.name,
-    fullName: repository.full_name,
-    description: repository.description,
-    url: repository.html_url,
-    language: repository.language,
-    stars: repository.stargazers_count,
-    forks: repository.forks_count,
-    defaultBranch: repository.default_branch,
-    updatedAt: repository.updated_at,
-  }))
-  .sort(
-    (a, b) =>
-      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
+      .filter(
+        (repository) =>
+          repository.owner.login.toLowerCase() === username.toLowerCase()
+      )
+      .map((repository) => ({
+        id: repository.id,
+        name: repository.name,
+        fullName: repository.full_name,
+        description: repository.description,
+        url: repository.html_url,
+        language: repository.language,
+        stars: repository.stargazers_count,
+        forks: repository.forks_count,
+        defaultBranch: repository.default_branch,
+        updatedAt: repository.updated_at,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() -
+          new Date(a.updatedAt).getTime()
+      );
 
     return NextResponse.json({
       username,
@@ -257,9 +246,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const segments = parsedUrl.pathname
-      .split("/")
-      .filter(Boolean);
+    const segments = parsedUrl.pathname.split("/").filter(Boolean);
 
     if (
       segments.length !== 2 ||
@@ -280,7 +267,10 @@ export async function POST(request: Request) {
 
     if (!repositoryResponse.ok) {
       return NextResponse.json(
-        { error: "Unable to retrieve repository information from GitHub." },
+        {
+          error:
+            "Unable to retrieve repository information from GitHub.",
+        },
         { status: repositoryResponse.status }
       );
     }
@@ -302,7 +292,9 @@ export async function POST(request: Request) {
     const treeData = await treeResponse.json();
 
     const sourceFiles = (treeData.tree as GitHubTreeFile[]).filter(
-      (file) => file.type === "blob" && isSourceFile(file.path)
+      (file) =>
+        file.type === "blob" &&
+        isSourceFile(file.path, { normalizeSlashes: true })
     );
 
     const selectedFiles = sourceFiles.slice(0, MAX_ANALYSIS_FILES);
@@ -376,7 +368,10 @@ export async function POST(request: Request) {
     console.error("Repository architecture analysis error:", error);
 
     return NextResponse.json(
-      { error: "An unexpected error occurred during architecture analysis." },
+      {
+        error:
+          "An unexpected error occurred during architecture analysis.",
+      },
       { status: 500 }
     );
   }

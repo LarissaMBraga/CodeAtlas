@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,6 +15,10 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  fetchRepository,
+  getRepositoryAnalysisPath,
+} from "@/lib/github/repository-client";
 
 type Repository = {
   id: number;
@@ -158,33 +161,9 @@ export default function GitHubRepositoriesCard() {
     setError("");
 
     try {
-      const response = await fetch("/api/github/repository", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          repositoryUrl: repository.url,
-        }),
-      });
+      await fetchRepository<unknown>(repository.url);
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          result.error || "Unable to retrieve repository information."
-        );
-      }
-
-      const [owner, repo] = repository.fullName.split("/");
-
-      if (!owner || !repo) {
-        throw new Error("Invalid repository information.");
-      }
-
-      router.push(
-        `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
-      );
+      router.push(getRepositoryAnalysisPath(repository.fullName));
     } catch (analysisError) {
       setError(
         analysisError instanceof Error

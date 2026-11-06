@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -14,6 +13,10 @@ import {
   ExternalLink,
   AlertCircle,
 } from "lucide-react";
+import {
+  fetchRepository,
+  getRepositoryAnalysisPath,
+} from "@/lib/github/repository-client";
 
 type Repository = {
   id: number;
@@ -58,25 +61,8 @@ export default function PublicRepositoryInput() {
     setIsAnalyzing(true);
 
     try {
-      const response = await fetch("/api/github/repository", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          repositoryUrl: normalizedUrl,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Unable to retrieve repository information."
-        );
-      }
-
-      setRepository(data.repository);
+      const result = await fetchRepository<Repository>(normalizedUrl);
+      setRepository(result);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -91,16 +77,15 @@ export default function PublicRepositoryInput() {
   function handleOpenAnalysis() {
     if (!repository) return;
 
-    const [owner, repo] = repository.fullName.split("/");
-
-    if (!owner || !repo) {
-      setError("Invalid repository information.");
-      return;
+    try {
+      router.push(getRepositoryAnalysisPath(repository.fullName));
+    } catch (navigationError) {
+      setError(
+        navigationError instanceof Error
+          ? navigationError.message
+          : "Invalid repository information."
+      );
     }
-
-    router.push(
-      `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
-    );
   }
 
   return (

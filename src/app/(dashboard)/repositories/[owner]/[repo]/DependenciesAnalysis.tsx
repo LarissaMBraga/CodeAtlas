@@ -1,4 +1,3 @@
-
 import {
   AlertTriangle,
   Boxes,
@@ -10,45 +9,10 @@ import {
   Puzzle,
   Wrench,
 } from "lucide-react";
-
-type DependencyCategory =
-  | "production"
-  | "development"
-  | "peer"
-  | "optional";
-
-type Dependency = {
-  name: string;
-  version: string;
-  type: DependencyCategory;
-};
-
-type PackageManifest = {
-  path: string;
-  packageName: string | null;
-  packageManager: string | null;
-  totalDependencies: number;
-  productionCount: number;
-  developmentCount: number;
-  peerCount: number;
-  optionalCount: number;
-  dependencies: Dependency[];
-};
-
-type DependenciesAnalysisData = {
-  available: boolean;
-  manifestFound: boolean;
-  manifestCount: number;
-  manifestPaths: string[];
-  manifests: PackageManifest[];
-  totalDependencies: number;
-  productionCount: number;
-  developmentCount: number;
-  peerCount: number;
-  optionalCount: number;
-  dependencies: Dependency[];
-  truncated: boolean;
-};
+import type {
+  DependenciesAnalysisData,
+  DependencyCategory,
+} from "./dependencies-analysis-types";
 
 type DependenciesAnalysisProps = {
   analysis: DependenciesAnalysisData | null;
