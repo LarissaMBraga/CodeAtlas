@@ -1328,28 +1328,43 @@ if (!treeResponse.ok) {
     };
 
     return NextResponse.json(result);
-    } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === "GITHUB_RATE_LIMIT") {
-        return NextResponse.json(
-          { error: "GitHub API rate limit reached. Please try again later." },
-          { status: 429 }
-        );
+        } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === "GITHUB_RATE_LIMIT") {
+          return NextResponse.json(
+            { error: "GitHub API rate limit reached. Please try again later." },
+            { status: 429 }
+          );
+        }
+
+        if (error.message === "GITHUB_ACCESS_DENIED") {
+          return NextResponse.json(
+            {
+              error: "GitHub denied access to one or more repository files. Check the GitHub App installation permissions.",
+            },
+            { status: 403 }
+          );
+        }
       }
 
-      if (error.message === "GITHUB_ACCESS_DENIED") {
-        return NextResponse.json(
-          { error: "GitHub denied access to one or more repository files. Check the GitHub App installation permissions." },
-          { status: 403 }
-        );
-      }
+      const errorDetails = {
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      };
+
+      console.error("[Code Health] Analysis failed:", errorDetails);
+
+      return NextResponse.json(
+        {
+          error: "An unexpected error occurred during code health analysis.",
+          diagnostic: {
+            name: errorDetails.name,
+            message: errorDetails.message,
+          },
+        },
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json(
-      {
-        error: "An unexpected error occurred during code health analysis.",
-      },
-      { status: 500 }
-    );
   }
-}
+
