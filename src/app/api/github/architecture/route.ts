@@ -1,29 +1,14 @@
 
 import { NextResponse } from "next/server";
 import { githubApiFetch } from "@/lib/github/app-auth";
+import { isRateLimitResponse } from "@/lib/github/rate-limit";
+import {
+  isSourceFile,
+  SOURCE_EXTENSIONS,
+} from "@/lib/github/source-files";
 
 const MAX_ANALYSIS_FILES = 80;
 const BATCH_SIZE = 10;
-
-const SOURCE_EXTENSIONS = [
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".vue",
-  ".svelte",
-];
-
-const IGNORED_DIRECTORIES = [
-  "node_modules/",
-  ".next/",
-  "dist/",
-  "build/",
-  "coverage/",
-  "vendor/",
-];
 
 type GitHubRepository = {
   default_branch: string;
@@ -54,19 +39,6 @@ type ArchitectureEdge = {
   source: string;
   target: string;
 };
-
-function isSourceFile(path: string) {
-  const normalizedPath = path.toLowerCase();
-
-  return (
-    SOURCE_EXTENSIONS.some((extension) =>
-      normalizedPath.endsWith(extension)
-    ) &&
-    !IGNORED_DIRECTORIES.some((directory) =>
-      normalizedPath.includes(directory)
-    )
-  );
-}
 
 function getExtension(path: string) {
   const match = path.match(/\.[^.]+$/);
@@ -156,34 +128,6 @@ function detectNodeType(
     /export\s*\{\s*[A-Z]/.test(content);
 
   return hasJsx && hasExportedComponent ? "component" : "module";
-}
-
-async function isRateLimitResponse(response: Response) {
-  if (response.status === 429) {
-    return true;
-  }
-
-  if (response.status !== 403) {
-    return false;
-  }
-
-  if (
-    response.headers.get("x-ratelimit-remaining") === "0" ||
-    response.headers.has("retry-after")
-  ) {
-    return true;
-  }
-
-  try {
-    const data = await response.clone().json();
-
-    return (
-      typeof data.message === "string" &&
-      data.message.toLowerCase().includes("rate limit")
-    );
-  } catch {
-    return false;
-  }
 }
 
 async function fetchGitHubJson<T>(endpoint: string): Promise<T> {
@@ -343,7 +287,9 @@ export async function POST(request: Request) {
     );
 
     const allSourceFiles = treeData.tree.filter(
-      (item) => item.type === "blob" && isSourceFile(item.path)
+      (item) =>
+        item.type === "blob" &&
+        isSourceFile(item.path, { caseInsensitive: true })
     );
 
     const sourceFiles = allSourceFiles.slice(
@@ -370,14 +316,14 @@ export async function POST(request: Request) {
       const results = await Promise.all(
         batch.map(async (file) => ({
           path: file.path,
-         content: await fetchSourceFile(
-  owner,
-  repository,
-  file.path,
-  branch,
-  file.sha,
-  repositoryData.private
-),
+          content: await fetchSourceFile(
+            owner,
+            repository,
+            file.path,
+            branch,
+            file.sha,
+            repositoryData.private
+          ),
         }))
       );
 

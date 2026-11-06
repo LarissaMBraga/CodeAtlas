@@ -1,7 +1,7 @@
-
 import { NextResponse } from "next/server";
 import ts from "typescript";
 import { githubApiFetch } from "@/lib/github/app-auth";
+import { isRateLimitResponse } from "@/lib/github/rate-limit";
 import type { StructureItem } from "@xberg-io/tree-sitter-language-pack";
 import { analyzeWithTreeSitter } from "@/lib/code-health/tree-sitter-analyzer";
 import { detectLanguageFromPath } from "@xberg-io/tree-sitter-language-pack";
@@ -172,35 +172,6 @@ type AnalyzedFile = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-
-async function isRateLimitResponse(response: Response) {
-  if (response.status === 429) {
-    return true;
-  }
-
-  if (response.status !== 403) {
-    return false;
-  }
-
-  if (
-    response.headers.get("x-ratelimit-remaining") === "0" ||
-    response.headers.has("retry-after")
-  ) {
-    return true;
-  }
-
-  try {
-    const data = await response.clone().json();
-
-    return (
-      typeof data.message === "string" &&
-      data.message.toLowerCase().includes("rate limit")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function isTestFile(path: string) {
@@ -646,30 +617,30 @@ function analyzeGenericFile(
     );
   }
 
-const markerPattern = /\b(TODO|FIXME|HACK)\b/gi;
+  const markerPattern = /\b(TODO|FIXME|HACK)\b/gi;
 
-for (const comment of analysis.result.comments ?? []) {
-  if (!comment.text) continue;
+  for (const comment of analysis.result.comments ?? []) {
+    if (!comment.text) continue;
 
-  let match: RegExpExecArray | null;
+    let match: RegExpExecArray | null;
 
-  markerPattern.lastIndex = 0;
+    markerPattern.lastIndex = 0;
 
-  while ((match = markerPattern.exec(comment.text)) !== null) {
-    const marker = match[1].toUpperCase();
+    while ((match = markerPattern.exec(comment.text)) !== null) {
+      const marker = match[1].toUpperCase();
 
-    addIssue(
-      issues,
-      path,
-      (comment.span?.startLine ?? 0) + 1,
-      "code-smell",
-      marker === "FIXME" ? "medium" : "low",
-      `${marker} comment`,
-      `A ${marker} marker was found.`,
-      "Review the note and resolve it or document why it remains."
-    );
+      addIssue(
+        issues,
+        path,
+        (comment.span?.startLine ?? 0) + 1,
+        "code-smell",
+        marker === "FIXME" ? "medium" : "low",
+        `${marker} comment`,
+        `A ${marker} marker was found.`,
+        "Review the note and resolve it or document why it remains."
+      );
+    }
   }
-}
 
   const lines =
     analysis.result.metrics?.totalLines ?? countLines(content);
@@ -761,8 +732,6 @@ async function fetchGitHubFile(
   ).toString("utf-8");
 }
 
-
-
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -803,7 +772,6 @@ async function mapWithConcurrency<T, R>(
 
   return results;
 }
-
 
 function findDuplicatedBlocks(files: AnalyzedFile[]) {
   const occurrences = new Map<
@@ -950,66 +918,65 @@ export async function POST(request: Request) {
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
     );
 
-    
-if (await isRateLimitResponse(repositoryResponse)) {
-  return NextResponse.json(
-    { error: "GitHub API rate limit reached. Please try again later." },
-    { status: 429 }
-  );
-}
+    if (await isRateLimitResponse(repositoryResponse)) {
+      return NextResponse.json(
+        { error: "GitHub API rate limit reached. Please try again later." },
+        { status: 429 }
+      );
+    }
 
-if (repositoryResponse.status === 403) {
-  return NextResponse.json(
-    { error: "GitHub denied access to this repository. Check the GitHub App installation permissions." },
-    { status: 403 }
-  );
-}
+    if (repositoryResponse.status === 403) {
+      return NextResponse.json(
+        { error: "GitHub denied access to this repository. Check the GitHub App installation permissions." },
+        { status: 403 }
+      );
+    }
 
-if (repositoryResponse.status === 404) {
-  return NextResponse.json(
-    { error: "Repository not found or inaccessible." },
-    { status: 404 }
-  );
-}
+    if (repositoryResponse.status === 404) {
+      return NextResponse.json(
+        { error: "Repository not found or inaccessible." },
+        { status: 404 }
+      );
+    }
 
-if (!repositoryResponse.ok) {
-  return NextResponse.json(
-    { error: "Unable to retrieve repository information." },
-    { status: 502 }
-  );
-}
+    if (!repositoryResponse.ok) {
+      return NextResponse.json(
+        { error: "Unable to retrieve repository information." },
+        { status: 502 }
+      );
+    }
 
-const treeResponse = await githubApiFetch(
-  `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
-);
+    const treeResponse = await githubApiFetch(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
+    );
 
-if (await isRateLimitResponse(treeResponse)) {
-  return NextResponse.json(
-    { error: "GitHub API rate limit reached. Please try again later." },
-    { status: 429 }
-  );
-}
+    if (await isRateLimitResponse(treeResponse)) {
+      return NextResponse.json(
+        { error: "GitHub API rate limit reached. Please try again later." },
+        { status: 429 }
+      );
+    }
 
-if (treeResponse.status === 404) {
-  return NextResponse.json(
-    { error: "Repository branch or file tree not found." },
-    { status: 404 }
-  );
-}
+    if (treeResponse.status === 404) {
+      return NextResponse.json(
+        { error: "Repository branch or file tree not found." },
+        { status: 404 }
+      );
+    }
 
-if (treeResponse.status === 403) {
-  return NextResponse.json(
-    { error: "GitHub denied access to the repository tree." },
-    { status: 403 }
-  );
-}
+    if (treeResponse.status === 403) {
+      return NextResponse.json(
+        { error: "GitHub denied access to the repository tree." },
+        { status: 403 }
+      );
+    }
 
-if (!treeResponse.ok) {
-  return NextResponse.json(
-    { error: "Unable to retrieve repository files." },
-    { status: 502 }
-  );
-}
+    if (!treeResponse.ok) {
+      return NextResponse.json(
+        { error: "Unable to retrieve repository files." },
+        { status: 502 }
+      );
+    }
 
     if (!treeResponse.ok) {
       return NextResponse.json(
@@ -1122,31 +1089,31 @@ if (!treeResponse.ok) {
       0
     );
 
-   const analyzedFiles = successfulContents.map((item) => {
-  const extension = getExtension(item.file.path);
+    const analyzedFiles = successfulContents.map((item) => {
+      const extension = getExtension(item.file.path);
 
-  if (SPECIALIZED_EXTENSIONS.has(extension)) {
-    return analyzeFile(
-      item.file.path,
-      item.content,
-      item.file.size
-    );
-  }
+      if (SPECIALIZED_EXTENSIONS.has(extension)) {
+        return analyzeFile(
+          item.file.path,
+          item.content,
+          item.file.size
+        );
+      }
 
-  const result = analyzeGenericFile(
-    item.file.path,
-    item.content,
-    item.file.size
-  );
+      const result = analyzeGenericFile(
+        item.file.path,
+        item.content,
+        item.file.size
+      );
 
-  if (!result) {
-    throw new Error(
-      `No available analyzer for ${item.file.path}.`
-    );
-  }
+      if (!result) {
+        throw new Error(
+          `No available analyzer for ${item.file.path}.`
+        );
+      }
 
-  return result;
-});
+      return result;
+    });
 
     const issues = analyzedFiles.flatMap(
       (file) => file.issues
@@ -1206,8 +1173,8 @@ if (!treeResponse.ok) {
     };
 
     const testFiles = analyzedFiles.filter((file) =>
-  isTestFile(file.path)
-).length;
+      isTestFile(file.path)
+    ).length;
 
     const filesWithTests = analyzedFiles.filter((file) => {
       const baseName = file.path.replace(/\.[^.]+$/, "");
@@ -1289,24 +1256,24 @@ if (!treeResponse.ok) {
           (item) => item.title === "Explicit any type"
         ).length,
         catchBlocks: analyzedFiles.reduce(
-  (sum, file) =>
-    sum +
-    (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
-      ? (file.content.match(/\bcatch\b/g) || []).length
-      : 0),
-  0
-),
+          (sum, file) =>
+            sum +
+            (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
+              ? (file.content.match(/\bcatch\b/g) || []).length
+              : 0),
+          0
+        ),
         emptyCatchBlocks: issues.filter(
           (item) => item.title === "Empty catch block"
         ).length,
         unhandledPromiseSignals: analyzedFiles.reduce(
-  (sum, file) =>
-    sum +
-    (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
-      ? (file.content.match(/\.then\s*\(/g) || []).length
-      : 0),
-  0
-),
+          (sum, file) =>
+            sum +
+            (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
+              ? (file.content.match(/\.then\s*\(/g) || []).length
+              : 0),
+          0
+        ),
       },
       issues,
       functions: functions.sort(
@@ -1317,12 +1284,12 @@ if (!treeResponse.ok) {
       ),
       coverage: {
         supportedLanguages: Array.from(
-  new Set(
-    analyzedFiles
-      .map((file) => getLanguageByPath(file.path)?.name)
-      .filter((language): language is string => Boolean(language))
-  )
-).sort(),
+          new Set(
+            analyzedFiles
+              .map((file) => getLanguageByPath(file.path)?.name)
+              .filter((language): language is string => Boolean(language))
+          )
+        ).sort(),
         supportedFiles: allFiles.length,
         unsupportedFiles,
         ignoredDirectoryFiles,
@@ -1347,43 +1314,42 @@ if (!treeResponse.ok) {
     };
 
     return NextResponse.json(result);
-        } catch (error) {
-      if (error instanceof Error) {
-        if (error.message === "GITHUB_RATE_LIMIT") {
-          return NextResponse.json(
-            { error: "GitHub API rate limit reached. Please try again later." },
-            { status: 429 }
-          );
-        }
-
-        if (error.message === "GITHUB_ACCESS_DENIED") {
-          return NextResponse.json(
-            {
-              error: "GitHub denied access to one or more repository files. Check the GitHub App installation permissions.",
-            },
-            { status: 403 }
-          );
-        }
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "GITHUB_RATE_LIMIT") {
+        return NextResponse.json(
+          { error: "GitHub API rate limit reached. Please try again later." },
+          { status: 429 }
+        );
       }
 
-      const errorDetails = {
-        name: error instanceof Error ? error.name : "UnknownError",
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      };
-
-      console.error("[Code Health] Analysis failed:", errorDetails);
-
-      return NextResponse.json(
-        {
-          error: "An unexpected error occurred during code health analysis.",
-          diagnostic: {
-            name: errorDetails.name,
-            message: errorDetails.message,
+      if (error.message === "GITHUB_ACCESS_DENIED") {
+        return NextResponse.json(
+          {
+            error: "GitHub denied access to one or more repository files. Check the GitHub App installation permissions.",
           },
-        },
-        { status: 500 }
-      );
+          { status: 403 }
+        );
+      }
     }
-  }
 
+    const errorDetails = {
+      name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    };
+
+    console.error("[Code Health] Analysis failed:", errorDetails);
+
+    return NextResponse.json(
+      {
+        error: "An unexpected error occurred during code health analysis.",
+        diagnostic: {
+          name: errorDetails.name,
+          message: errorDetails.message,
+        },
+      },
+      { status: 500 }
+    );
+  }
+}
