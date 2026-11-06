@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import ArchitectureGraph from "./ArchitectureGraph";
 import CodeExplorer from "./CodeExplorer";
+import LanguagesAnalysis from "./LanguagesAnalysis";
 import {
   ArrowLeft,
   ExternalLink,
@@ -59,11 +60,24 @@ type Analysis = {
   truncated: boolean;
 };
 
+type Language = {
+  name: string;
+  bytes: number;
+  percentage: number;
+  fileCount: number;
+};
+
+type LanguageAnalysisData = {
+  available: boolean;
+  totalBytes: number;
+  totalFiles: number;
+};
+
 const sections = [
   { name: "Overview", id: "overview", icon: LayoutDashboard, status: "Available" },
   { name: "Architecture", id: "architecture", icon: Network, status: "Available" },
   { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Available" },
-  { name: "Languages", id: "languages", icon: Code2, status: "Coming soon" },
+  { name: "Languages", id: "languages", icon: Code2, status: "Available" },
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Coming soon" },
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Coming soon" },
   { name: "Security", id: "security", icon: ShieldCheck, status: "Coming soon" },
@@ -88,6 +102,9 @@ export default function RepositoryAnalysisContent() {
   const [repository, setRepository] = useState<Repository | null>(null);
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [languages, setLanguages] = useState<Language[]>([]);
+  const [languageAnalysis, setLanguageAnalysis] =
+    useState<LanguageAnalysisData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -122,6 +139,8 @@ export default function RepositoryAnalysisContent() {
           setRepository(result.repository);
           setFiles(result.files || []);
           setAnalysis(result.analysis || null);
+          setLanguages(result.languages || []);
+          setLanguageAnalysis(result.languageAnalysis || null);
           setShowAllFiles(false);
         }
       } catch (loadError) {
@@ -268,7 +287,8 @@ export default function RepositoryAnalysisContent() {
             const isAvailable =
               section.id === "overview" ||
               section.id === "architecture" ||
-              section.id === "code-explorer";
+              section.id === "code-explorer" ||
+              section.id === "languages";
 
             return (
               <a
@@ -484,6 +504,21 @@ export default function RepositoryAnalysisContent() {
                 repo={repo}
                 defaultBranch={repository.defaultBranch}
                 files={files}
+              />
+            </section>
+          );
+        }
+
+        if (section.id === "languages") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <LanguagesAnalysis
+                languages={languages}
+                analysis={languageAnalysis}
               />
             </section>
           );
