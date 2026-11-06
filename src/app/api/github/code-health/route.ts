@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import ts from "typescript";
 import { githubApiFetch } from "@/lib/github/app-auth";
 
-const MAX_FILES = 100;
-const MAX_FILE_SIZE = 300 * 1024;
-const MAX_TOTAL_SIZE = 5 * 1024 * 1024;
-const CONCURRENCY = 8;
+const MAX_FILES = 500;
+const MAX_FILE_SIZE = 1024 * 1024;
+const MAX_TOTAL_SIZE = 25 * 1024 * 1024;
+const CONCURRENCY = 5;
 
 const SUPPORTED_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
@@ -514,7 +514,6 @@ function analyzeFile(
   };
 }
 
-
 async function fetchGitHubFile(
   owner: string,
   repo: string,
@@ -540,8 +539,12 @@ async function fetchGitHubFile(
     throw new Error("GITHUB_ACCESS_DENIED");
   }
 
-  if (!response.ok) {
+  if (response.status === 404) {
     return null;
+  }
+
+  if (!response.ok) {
+    throw new Error("GITHUB_FILE_FETCH_FAILED");
   }
 
   const data: unknown = await response.json();
@@ -778,25 +781,7 @@ if (!repositoryResponse.ok) {
   );
 }
 
-
-    if (
-      repositoryResponse.status === 403 ||
-      repositoryResponse.status === 429
-    ) {
-      return NextResponse.json(
-        { error: "GitHub API rate limit reached or repository access denied. Check the GitHub App installation permissions and selected repositories." },
-        { status: 429 }
-      );
-    }
-
-    if (!repositoryResponse.ok) {
-      return NextResponse.json(
-        { error: "Unable to retrieve repository information." },
-        { status: 502 }
-      );
-    }
-
-    const treeResponse = await githubApiFetch(
+const treeResponse = await githubApiFetch(
   `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(ref)}?recursive=1`
 );
 
@@ -827,16 +812,6 @@ if (!treeResponse.ok) {
     { status: 502 }
   );
 }
-
-    if (
-      treeResponse.status === 403 ||
-      treeResponse.status === 429
-    ) {
-      return NextResponse.json(
-        { error: "GitHub API rate limit reached or repository access denied. Check the GitHub App installation permissions and selected repositories." },
-        { status: 429 }
-      );
-    }
 
     if (!treeResponse.ok) {
       return NextResponse.json(
@@ -1153,7 +1128,23 @@ if (!treeResponse.ok) {
     };
 
     return NextResponse.json(result);
-  } catch {
+    } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "GITHUB_RATE_LIMIT") {
+        return NextResponse.json(
+          { error: "GitHub API rate limit reached. Please try again later." },
+          { status: 429 }
+        );
+      }
+
+      if (error.message === "GITHUB_ACCESS_DENIED") {
+        return NextResponse.json(
+          { error: "GitHub denied access to one or more repository files. Check the GitHub App installation permissions." },
+          { status: 403 }
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         error: "An unexpected error occurred during code health analysis.",
