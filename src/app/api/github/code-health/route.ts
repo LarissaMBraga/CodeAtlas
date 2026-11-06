@@ -547,27 +547,48 @@ function findDuplicatedBlocks(files: AnalyzedFile[]) {
     { file: string; line: number }[]
   >();
 
-  const blockSize = 6;
+  const blockSize = 8;
+  const minimumCharacters = 120;
 
   for (const file of files) {
     const lines = file.content.split(/\r?\n/);
+    const seenBlocks = new Set<string>();
 
     for (
       let index = 0;
       index <= lines.length - blockSize;
-      index += 1
     ) {
-      const block = lines
+      const blockLines = lines
         .slice(index, index + blockSize)
         .map((line) => line.trim())
-        .filter(Boolean)
-        .join("\n");
+        .filter(Boolean);
 
-      if (block.length < 100) continue;
+      if (blockLines.length < blockSize) {
+        index += 1;
+        continue;
+      }
+
+      const block = blockLines.join("\n");
+
+      if (
+        block.length < minimumCharacters ||
+        seenBlocks.has(block)
+      ) {
+        index += 1;
+        continue;
+      }
 
       const locations = occurrences.get(block) || [];
-      locations.push({ file: file.path, line: index + 1 });
+
+      locations.push({
+        file: file.path,
+        line: index + 1,
+      });
+
       occurrences.set(block, locations);
+      seenBlocks.add(block);
+
+      index += blockSize;
     }
   }
 
@@ -581,8 +602,11 @@ function findDuplicatedBlocks(files: AnalyzedFile[]) {
       locations.map((location) => location.file)
     );
 
-    if (locations.length > 1 && uniqueFiles.size > 1) {
-      duplicates.push({ block, locations });
+    if (uniqueFiles.size > 1) {
+      duplicates.push({
+        block,
+        locations,
+      });
     }
   }
 
