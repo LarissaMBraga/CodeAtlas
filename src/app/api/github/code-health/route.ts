@@ -6,6 +6,12 @@ import type { StructureItem } from "@xberg-io/tree-sitter-language-pack";
 import { analyzeWithTreeSitter } from "@/lib/code-health/tree-sitter-analyzer";
 import { detectLanguageFromPath } from "@xberg-io/tree-sitter-language-pack";
 import { getLanguageByPath } from "@/lib/code-health/language-config";
+import type {
+  CodeHealthData,
+  FileMetric,
+  FunctionMetric,
+  Issue,
+} from "@/lib/code-health/types";
 
 const MAX_FILES = 500;
 const MAX_FILE_SIZE = 1024 * 1024;
@@ -76,88 +82,6 @@ type SourceFile = {
   path: string;
   sha: string;
   size: number;
-};
-
-type Issue = {
-  id: string;
-  category: string;
-  severity: "critical" | "high" | "medium" | "low" | "info";
-  title: string;
-  description: string;
-  file: string;
-  line: number;
-  recommendation: string;
-};
-
-type FunctionMetric = {
-  name: string;
-  file: string;
-  line: number;
-  complexity: number;
-  lines: number;
-};
-
-type FileMetric = {
-  path: string;
-  lines: number;
-  size: number;
-  complexity: number;
-  functions: number;
-  score: number;
-  issues: number;
-};
-
-type AnalysisResult = {
-  healthScore: number;
-  summary: {
-    analyzedFiles: number;
-    skippedFiles: number;
-    totalFiles: number;
-    totalLines: number;
-    totalIssues: number;
-    criticalIssues: number;
-    highIssues: number;
-    mediumIssues: number;
-    lowIssues: number;
-  };
-  metrics: {
-    averageComplexity: number;
-    totalFunctions: number;
-    complexFunctions: number;
-    longFunctions: number;
-    largeFiles: number;
-    duplicationBlocks: number;
-    filesWithTests: number;
-    testFiles: number;
-    todoCount: number;
-    fixmeCount: number;
-    consoleCount: number;
-    anyCount: number;
-    catchBlocks: number;
-    emptyCatchBlocks: number;
-    unhandledPromiseSignals: number;
-  };
-  issues: Issue[];
-  functions: FunctionMetric[];
-  files: FileMetric[];
-  coverage: {
-    supportedLanguages: string[];
-    supportedFiles: number;
-    unsupportedFiles: number;
-    ignoredDirectoryFiles: number;
-    emptyFiles: number;
-    oversizedFiles: number;
-    fileLimitExceeded: number;
-    totalSizeLimitExceeded: number;
-    fetchFailedFiles: number;
-    maxFiles: number;
-    maxFileSize: number;
-    maxTotalSize: number;
-    concurrency: number;
-    truncated: boolean;
-    analyzedBytes: number;
-  };
-  categories: Record<string, number>;
 };
 
 type AnalyzedFile = {
@@ -978,13 +902,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!treeResponse.ok) {
-      return NextResponse.json(
-        { error: "Unable to retrieve repository files." },
-        { status: 502 }
-      );
-    }
-
     const treeData = await treeResponse.json();
 
     const treeItems: unknown[] = Array.isArray(treeData.tree)
@@ -1211,7 +1128,7 @@ export async function POST(request: Request) {
       }
     );
 
-    const result: AnalysisResult = {
+    const result: CodeHealthData = {
       healthScore: calculateHealthScore(issues, totalLines),
       summary: {
         analyzedFiles: analyzedFiles.length,
