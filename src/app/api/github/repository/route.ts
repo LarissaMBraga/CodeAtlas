@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 
 const SOURCE_EXTENSIONS = [
@@ -38,15 +39,206 @@ const LANGUAGE_BY_EXTENSION: Record<string, string> = {
 };
 
 const MAX_FILES = 200;
+const MAX_PACKAGE_MANIFESTS = 20;
+
+type DependencyCategory =
+  | "production"
+  | "development"
+  | "peer"
+  | "optional";
+
+type Dependency = {
+  name: string;
+  version: string;
+  type: DependencyCategory;
+};
+
+type PackageManifestAnalysis = {
+  path: string;
+  packageName: string | null;
+  packageManager: string | null;
+  totalDependencies: number;
+  productionCount: number;
+  developmentCount: number;
+  peerCount: number;
+  optionalCount: number;
+  dependencies: Dependency[];
+};
+
+type GitHubTreeItem = {
+  path: string;
+  type: string;
+  sha: string;
+  size?: number;
+};
+
+function isIgnoredPath(path: string) {
+  const normalizedPath = path.toLowerCase();
+
+  return IGNORED_DIRECTORIES.some((directory) =>
+    normalizedPath.includes(directory)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function getDependencies(
+  packageJson: Record<string, unknown>,
+  field: string,
+  type: DependencyCategory
+): Dependency[] {
+  const value = packageJson[field];
+
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  return Object.entries(value)
+    .filter((entry): entry is [string, string] =>
+      typeof entry[1] === "string"
+    )
+    .map(([name, version]) => ({
+      name,
+      version,
+      type,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getPackageManager(
+  packageJson: Record<string, unknown>,
+  manifestPath: string,
+  allPaths: Set<string>
+) {
+  if (typeof packageJson.packageManager === "string") {
+    return packageJson.packageManager.split("@")[0];
+  }
+
+  const directory = manifestPath.includes("/")
+    ? manifestPath.slice(0, manifestPath.lastIndexOf("/") + 1)
+    : "";
+
+  const lockFiles = [
+    { path: `${directory}pnpm-lock.yaml`, manager: "pnpm" },
+    { path: `${directory}yarn.lock`, manager: "yarn" },
+    { path: `${directory}bun.lock`, manager: "bun" },
+    { path: `${directory}bun.lockb`, manager: "bun" },
+    { path: `${directory}package-lock.json`, manager: "npm" },
+    { path: "pnpm-lock.yaml", manager: "pnpm" },
+    { path: "yarn.lock", manager: "yarn" },
+    { path: "bun.lock", manager: "bun" },
+    { path: "bun.lockb", manager: "bun" },
+    { path: "package-lock.json", manager: "npm" },
+  ];
+
+  return (
+    lockFiles.find((file) => allPaths.has(file.path))?.manager ?? null
+  );
+}
+
+async function fetchPackageManifest(
+  owner: string,
+  repository: string,
+  manifest: GitHubTreeItem,
+  headers: Record<string, string>,
+  allPaths: Set<string>
+): Promise<PackageManifestAnalysis | null> {
+  const response = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/git/blobs/${encodeURIComponent(manifest.sha)}`,
+    {
+      headers,
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  try {
+    const blob = await response.json();
+
+    if (typeof blob.content !== "string") {
+      return null;
+    }
+
+    const decodedContent = Buffer.from(
+      blob.content.replace(/\s/g, ""),
+      "base64"
+    ).toString("utf-8");
+
+    const packageJson: unknown = JSON.parse(decodedContent);
+
+    if (!isRecord(packageJson)) {
+      return null;
+    }
+
+    const production = getDependencies(
+      packageJson,
+      "dependencies",
+      "production"
+    );
+
+    const development = getDependencies(
+      packageJson,
+      "devDependencies",
+      "development"
+    );
+
+    const peer = getDependencies(
+      packageJson,
+      "peerDependencies",
+      "peer"
+    );
+
+    const optional = getDependencies(
+      packageJson,
+      "optionalDependencies",
+      "optional"
+    );
+
+    const dependencies = [
+      ...production,
+      ...development,
+      ...peer,
+      ...optional,
+    ].sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      path: manifest.path,
+      packageName:
+        typeof packageJson.name === "string"
+          ? packageJson.name
+          : null,
+      packageManager: getPackageManager(
+        packageJson,
+        manifest.path,
+        allPaths
+      ),
+      totalDependencies: dependencies.length,
+      productionCount: production.length,
+      developmentCount: development.length,
+      peerCount: peer.length,
+      optionalCount: optional.length,
+      dependencies,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
 
     if (
-      typeof body !== "object" ||
-      body === null ||
-      !("repositoryUrl" in body) ||
+      !isRecord(body) ||
       typeof body.repositoryUrl !== "string"
     ) {
       return NextResponse.json(
@@ -173,40 +365,29 @@ export async function POST(request: Request) {
     }
 
     const treeData = await treeResponse.json();
+    const tree: GitHubTreeItem[] = treeData.tree ?? [];
 
-    const allSourceFiles = treeData.tree.filter(
-      (file: { path: string; type: string }) => {
-        const path = file.path.toLowerCase();
+    const allSourceFiles = tree.filter((file) => {
+      const path = file.path.toLowerCase();
 
-        const isSourceFile = SOURCE_EXTENSIONS.some(
-          (extension) => path.endsWith(extension)
-        );
+      const isSourceFile = SOURCE_EXTENSIONS.some((extension) =>
+        path.endsWith(extension)
+      );
 
-        const isIgnored = IGNORED_DIRECTORIES.some(
-          (directory) => path.includes(directory)
-        );
-
-        return (
-          file.type === "blob" &&
-          isSourceFile &&
-          !isIgnored
-        );
-      }
-    );
+      return (
+        file.type === "blob" &&
+        isSourceFile &&
+        !isIgnoredPath(path)
+      );
+    });
 
     const sourceFiles = allSourceFiles
       .slice(0, MAX_FILES)
-      .map(
-        (file: {
-          path: string;
-          sha: string;
-          size?: number;
-        }) => ({
-          path: file.path,
-          sha: file.sha,
-          size: file.size ?? 0,
-        })
-      );
+      .map((file) => ({
+        path: file.path,
+        sha: file.sha,
+        size: file.size ?? 0,
+      }));
 
     const languagesResponse = await fetch(
       `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/languages`,
@@ -253,119 +434,75 @@ export async function POST(request: Request) {
       }))
       .sort((a, b) => b.bytes - a.bytes);
 
-    const dependenciesAnalysis = {
-      available: false,
-      manifestFound: false,
-      manifestPath: null as string | null,
-      packageName: null as string | null,
-      packageManager: null as string | null,
-      totalDependencies: 0,
-      productionCount: 0,
-      developmentCount: 0,
-      dependencies: [] as {
-        name: string;
-        version: string;
-        type: "production" | "development";
-      }[],
-    };
-
-    const packageManifest = treeData.tree.find(
-      (file: { path: string; type: string }) =>
-        file.path === "package.json" &&
-        file.type === "blob"
+    const allPaths = new Set(
+      tree
+        .filter((file) => file.type === "blob")
+        .map((file) => file.path)
     );
 
-    if (packageManifest) {
-      dependenciesAnalysis.manifestFound = true;
-      dependenciesAnalysis.manifestPath = packageManifest.path;
+    const allManifests = tree.filter(
+      (file) =>
+        file.type === "blob" &&
+        file.path.split("/").pop() === "package.json" &&
+        !isIgnoredPath(file.path)
+    );
 
-      const manifestResponse = await fetch(
-        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/git/blobs/${encodeURIComponent(packageManifest.sha)}`,
-        {
+    const selectedManifests = allManifests.slice(
+      0,
+      MAX_PACKAGE_MANIFESTS
+    );
+
+    const manifestResults = await Promise.all(
+      selectedManifests.map((manifest) =>
+        fetchPackageManifest(
+          owner,
+          repositoryName,
+          manifest,
           headers,
-          cache: "no-store",
-        }
-      );
+          allPaths
+        )
+      )
+    );
 
-      if (manifestResponse.ok) {
-        try {
-          const manifestData = await manifestResponse.json();
+    const manifests = manifestResults
+      .filter(
+        (manifest): manifest is PackageManifestAnalysis =>
+          manifest !== null
+      )
+      .sort((a, b) => a.path.localeCompare(b.path));
 
-          const packageJson = JSON.parse(
-            Buffer.from(manifestData.content, "base64").toString("utf-8")
-          );
+    const allDependencies = manifests.flatMap(
+      (manifest) => manifest.dependencies
+    );
 
-          const productionDependencies =
-            packageJson.dependencies &&
-            typeof packageJson.dependencies === "object"
-              ? packageJson.dependencies
-              : {};
-
-          const developmentDependencies =
-            packageJson.devDependencies &&
-            typeof packageJson.devDependencies === "object"
-              ? packageJson.devDependencies
-              : {};
-
-          const production = Object.entries(productionDependencies)
-            .filter((entry): entry is [string, string] =>
-              typeof entry[1] === "string"
-            )
-            .map(([name, version]) => ({
-              name,
-              version,
-              type: "production" as const,
-            }));
-
-          const development = Object.entries(developmentDependencies)
-            .filter((entry): entry is [string, string] =>
-              typeof entry[1] === "string"
-            )
-            .map(([name, version]) => ({
-              name,
-              version,
-              type: "development" as const,
-            }));
-
-          const lockFiles = treeData.tree
-            .filter((file: { path: string; type: string }) =>
-              file.type === "blob"
-            )
-            .map((file: { path: string }) => file.path);
-
-          const detectedPackageManager =
-            typeof packageJson.packageManager === "string"
-              ? packageJson.packageManager.split("@")[0]
-              : lockFiles.includes("pnpm-lock.yaml")
-                ? "pnpm"
-                : lockFiles.includes("yarn.lock")
-                  ? "yarn"
-                  : lockFiles.includes("bun.lock") ||
-                      lockFiles.includes("bun.lockb")
-                    ? "bun"
-                    : lockFiles.includes("package-lock.json")
-                      ? "npm"
-                      : null;
-
-          dependenciesAnalysis.available = true;
-          dependenciesAnalysis.packageName =
-            typeof packageJson.name === "string"
-              ? packageJson.name
-              : null;
-          dependenciesAnalysis.packageManager = detectedPackageManager;
-          dependenciesAnalysis.productionCount = production.length;
-          dependenciesAnalysis.developmentCount = development.length;
-          dependenciesAnalysis.totalDependencies =
-            production.length + development.length;
-          dependenciesAnalysis.dependencies = [
-            ...production,
-            ...development,
-          ].sort((a, b) => a.name.localeCompare(b.name));
-        } catch {
-          dependenciesAnalysis.available = false;
-        }
-      }
-    }
+    const dependenciesAnalysis = {
+      available: manifests.length > 0,
+      manifestFound: allManifests.length > 0,
+      manifestCount: manifests.length,
+      manifestPaths: manifests.map((manifest) => manifest.path),
+      manifests,
+      totalDependencies: allDependencies.length,
+      productionCount: manifests.reduce(
+        (total, manifest) => total + manifest.productionCount,
+        0
+      ),
+      developmentCount: manifests.reduce(
+        (total, manifest) => total + manifest.developmentCount,
+        0
+      ),
+      peerCount: manifests.reduce(
+        (total, manifest) => total + manifest.peerCount,
+        0
+      ),
+      optionalCount: manifests.reduce(
+        (total, manifest) => total + manifest.optionalCount,
+        0
+      ),
+      dependencies: allDependencies,
+      truncated:
+        allManifests.length > MAX_PACKAGE_MANIFESTS ||
+        Boolean(treeData.truncated),
+    };
 
     return NextResponse.json({
       repository: {
@@ -396,7 +533,7 @@ export async function POST(request: Request) {
         totalSourceFiles: sourceFiles.length,
         maxFiles: MAX_FILES,
         truncated:
-          treeData.truncated ||
+          Boolean(treeData.truncated) ||
           allSourceFiles.length > MAX_FILES,
       },
     });
