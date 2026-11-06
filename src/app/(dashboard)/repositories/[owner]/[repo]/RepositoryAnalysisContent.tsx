@@ -7,6 +7,7 @@ import Link from "next/link";
 import ArchitectureGraph from "./ArchitectureGraph";
 import CodeExplorer from "./CodeExplorer";
 import LanguagesAnalysis from "./LanguagesAnalysis";
+import DependenciesAnalysis from "./DependenciesAnalysis";
 import {
   ArrowLeft,
   ExternalLink,
@@ -73,12 +74,51 @@ type LanguageAnalysisData = {
   totalFiles: number;
 };
 
+type DependencyCategory =
+  | "production"
+  | "development"
+  | "peer"
+  | "optional";
+
+type Dependency = {
+  name: string;
+  version: string;
+  type: DependencyCategory;
+};
+
+type PackageManifest = {
+  path: string;
+  packageName: string | null;
+  packageManager: string | null;
+  totalDependencies: number;
+  productionCount: number;
+  developmentCount: number;
+  peerCount: number;
+  optionalCount: number;
+  dependencies: Dependency[];
+};
+
+type DependenciesAnalysisData = {
+  available: boolean;
+  manifestFound: boolean;
+  manifestCount: number;
+  manifestPaths: string[];
+  manifests: PackageManifest[];
+  totalDependencies: number;
+  productionCount: number;
+  developmentCount: number;
+  peerCount: number;
+  optionalCount: number;
+  dependencies: Dependency[];
+  truncated: boolean;
+};
+
 const sections = [
   { name: "Overview", id: "overview", icon: LayoutDashboard, status: "Available" },
   { name: "Architecture", id: "architecture", icon: Network, status: "Available" },
   { name: "Code Explorer", id: "code-explorer", icon: FolderTree, status: "Available" },
   { name: "Languages", id: "languages", icon: Code2, status: "Available" },
-  { name: "Dependencies", id: "dependencies", icon: Package, status: "Coming soon" },
+  { name: "Dependencies", id: "dependencies", icon: Package, status: "Available" },
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Coming soon" },
   { name: "Security", id: "security", icon: ShieldCheck, status: "Coming soon" },
   { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Coming soon" },
@@ -105,6 +145,8 @@ export default function RepositoryAnalysisContent() {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [languageAnalysis, setLanguageAnalysis] =
     useState<LanguageAnalysisData | null>(null);
+  const [dependenciesAnalysis, setDependenciesAnalysis] =
+    useState<DependenciesAnalysisData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -141,6 +183,7 @@ export default function RepositoryAnalysisContent() {
           setAnalysis(result.analysis || null);
           setLanguages(result.languages || []);
           setLanguageAnalysis(result.languageAnalysis || null);
+          setDependenciesAnalysis(result.dependenciesAnalysis || null);
           setShowAllFiles(false);
         }
       } catch (loadError) {
@@ -288,7 +331,8 @@ export default function RepositoryAnalysisContent() {
               section.id === "overview" ||
               section.id === "architecture" ||
               section.id === "code-explorer" ||
-              section.id === "languages";
+              section.id === "languages" ||
+              section.id === "dependencies";
 
             return (
               <a
@@ -520,6 +564,18 @@ export default function RepositoryAnalysisContent() {
                 languages={languages}
                 analysis={languageAnalysis}
               />
+            </section>
+          );
+        }
+
+        if (section.id === "dependencies") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <DependenciesAnalysis analysis={dependenciesAnalysis} />
             </section>
           );
         }
