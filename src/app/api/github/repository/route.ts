@@ -24,6 +24,20 @@ const IGNORED_DIRECTORIES = [
   "vendor/",
 ];
 
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  ".ts": "TypeScript",
+  ".tsx": "TypeScript",
+  ".js": "JavaScript",
+  ".jsx": "JavaScript",
+  ".mjs": "JavaScript",
+  ".cjs": "JavaScript",
+  ".vue": "Vue",
+  ".svelte": "Svelte",
+  ".html": "HTML",
+  ".css": "CSS",
+  ".scss": "SCSS",
+};
+
 const MAX_FILES = 200;
 
 export async function POST(request: Request) {
@@ -161,26 +175,27 @@ export async function POST(request: Request) {
 
     const treeData = await treeResponse.json();
 
-    const sourceFiles = treeData.tree
-      .filter(
-        (file: { path: string; type: string }) => {
-          const path = file.path.toLowerCase();
+    const allSourceFiles = treeData.tree.filter(
+      (file: { path: string; type: string }) => {
+        const path = file.path.toLowerCase();
 
-          const isSourceFile = SOURCE_EXTENSIONS.some(
-            (extension) => path.endsWith(extension)
-          );
+        const isSourceFile = SOURCE_EXTENSIONS.some(
+          (extension) => path.endsWith(extension)
+        );
 
-          const isIgnored = IGNORED_DIRECTORIES.some(
-            (directory) => path.includes(directory)
-          );
+        const isIgnored = IGNORED_DIRECTORIES.some(
+          (directory) => path.includes(directory)
+        );
 
-          return (
-            file.type === "blob" &&
-            isSourceFile &&
-            !isIgnored
-          );
-        }
-      )
+        return (
+          file.type === "blob" &&
+          isSourceFile &&
+          !isIgnored
+        );
+      }
+    );
+
+    const sourceFiles = allSourceFiles
       .slice(0, MAX_FILES)
       .map(
         (file: {
@@ -193,6 +208,51 @@ export async function POST(request: Request) {
           size: file.size ?? 0,
         })
       );
+
+    const languagesResponse = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/languages`,
+      {
+        headers,
+        cache: "no-store",
+      }
+    );
+
+    let languageBytes: Record<string, number> = {};
+    let languageAnalysisAvailable = false;
+
+    if (languagesResponse.ok) {
+      languageBytes = await languagesResponse.json();
+      languageAnalysisAvailable = true;
+    }
+
+    const languageFileCounts: Record<string, number> = {};
+
+    for (const file of allSourceFiles) {
+      const extension = `.${file.path.split(".").pop()?.toLowerCase()}`;
+      const language = LANGUAGE_BY_EXTENSION[extension];
+
+      if (language) {
+        languageFileCounts[language] =
+          (languageFileCounts[language] ?? 0) + 1;
+      }
+    }
+
+    const totalLanguageBytes = Object.values(languageBytes).reduce(
+      (total, bytes) => total + bytes,
+      0
+    );
+
+    const languages = Object.entries(languageBytes)
+      .map(([name, bytes]) => ({
+        name,
+        bytes,
+        percentage:
+          totalLanguageBytes > 0
+            ? (bytes / totalLanguageBytes) * 100
+            : 0,
+        fileCount: languageFileCounts[name] ?? 0,
+      }))
+      .sort((a, b) => b.bytes - a.bytes);
 
     return NextResponse.json({
       repository: {
@@ -212,26 +272,18 @@ export async function POST(request: Request) {
         },
       },
       files: sourceFiles,
+      languages,
+      languageAnalysis: {
+        available: languageAnalysisAvailable,
+        totalBytes: totalLanguageBytes,
+        totalFiles: allSourceFiles.length,
+      },
       analysis: {
         totalSourceFiles: sourceFiles.length,
         maxFiles: MAX_FILES,
         truncated:
           treeData.truncated ||
-          treeData.tree.filter(
-            (file: { path: string; type: string }) => {
-              const path = file.path.toLowerCase();
-
-              return (
-                file.type === "blob" &&
-                SOURCE_EXTENSIONS.some((extension) =>
-                  path.endsWith(extension)
-                ) &&
-                !IGNORED_DIRECTORIES.some((directory) =>
-                  path.includes(directory)
-                )
-              );
-            }
-          ).length > MAX_FILES,
+          allSourceFiles.length > MAX_FILES,
       },
     });
   } catch {
