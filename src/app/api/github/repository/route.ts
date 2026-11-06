@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 
 const SOURCE_EXTENSIONS = [
@@ -254,6 +253,120 @@ export async function POST(request: Request) {
       }))
       .sort((a, b) => b.bytes - a.bytes);
 
+    const dependenciesAnalysis = {
+      available: false,
+      manifestFound: false,
+      manifestPath: null as string | null,
+      packageName: null as string | null,
+      packageManager: null as string | null,
+      totalDependencies: 0,
+      productionCount: 0,
+      developmentCount: 0,
+      dependencies: [] as {
+        name: string;
+        version: string;
+        type: "production" | "development";
+      }[],
+    };
+
+    const packageManifest = treeData.tree.find(
+      (file: { path: string; type: string }) =>
+        file.path === "package.json" &&
+        file.type === "blob"
+    );
+
+    if (packageManifest) {
+      dependenciesAnalysis.manifestFound = true;
+      dependenciesAnalysis.manifestPath = packageManifest.path;
+
+      const manifestResponse = await fetch(
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/git/blobs/${encodeURIComponent(packageManifest.sha)}`,
+        {
+          headers,
+          cache: "no-store",
+        }
+      );
+
+      if (manifestResponse.ok) {
+        try {
+          const manifestData = await manifestResponse.json();
+
+          const packageJson = JSON.parse(
+            Buffer.from(manifestData.content, "base64").toString("utf-8")
+          );
+
+          const productionDependencies =
+            packageJson.dependencies &&
+            typeof packageJson.dependencies === "object"
+              ? packageJson.dependencies
+              : {};
+
+          const developmentDependencies =
+            packageJson.devDependencies &&
+            typeof packageJson.devDependencies === "object"
+              ? packageJson.devDependencies
+              : {};
+
+          const production = Object.entries(productionDependencies)
+            .filter((entry): entry is [string, string] =>
+              typeof entry[1] === "string"
+            )
+            .map(([name, version]) => ({
+              name,
+              version,
+              type: "production" as const,
+            }));
+
+          const development = Object.entries(developmentDependencies)
+            .filter((entry): entry is [string, string] =>
+              typeof entry[1] === "string"
+            )
+            .map(([name, version]) => ({
+              name,
+              version,
+              type: "development" as const,
+            }));
+
+          const lockFiles = treeData.tree
+            .filter((file: { path: string; type: string }) =>
+              file.type === "blob"
+            )
+            .map((file: { path: string }) => file.path);
+
+          const detectedPackageManager =
+            typeof packageJson.packageManager === "string"
+              ? packageJson.packageManager.split("@")[0]
+              : lockFiles.includes("pnpm-lock.yaml")
+                ? "pnpm"
+                : lockFiles.includes("yarn.lock")
+                  ? "yarn"
+                  : lockFiles.includes("bun.lock") ||
+                      lockFiles.includes("bun.lockb")
+                    ? "bun"
+                    : lockFiles.includes("package-lock.json")
+                      ? "npm"
+                      : null;
+
+          dependenciesAnalysis.available = true;
+          dependenciesAnalysis.packageName =
+            typeof packageJson.name === "string"
+              ? packageJson.name
+              : null;
+          dependenciesAnalysis.packageManager = detectedPackageManager;
+          dependenciesAnalysis.productionCount = production.length;
+          dependenciesAnalysis.developmentCount = development.length;
+          dependenciesAnalysis.totalDependencies =
+            production.length + development.length;
+          dependenciesAnalysis.dependencies = [
+            ...production,
+            ...development,
+          ].sort((a, b) => a.name.localeCompare(b.name));
+        } catch {
+          dependenciesAnalysis.available = false;
+        }
+      }
+    }
+
     return NextResponse.json({
       repository: {
         id: data.id,
@@ -278,6 +391,7 @@ export async function POST(request: Request) {
         totalBytes: totalLanguageBytes,
         totalFiles: allSourceFiles.length,
       },
+      dependenciesAnalysis,
       analysis: {
         totalSourceFiles: sourceFiles.length,
         maxFiles: MAX_FILES,
