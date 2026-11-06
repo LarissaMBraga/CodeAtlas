@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import CodeExplorer from "./CodeExplorer";
 import LanguagesAnalysis from "./LanguagesAnalysis";
 import DependenciesAnalysis from "./DependenciesAnalysis";
 import type { DependenciesAnalysisData } from "./dependencies-analysis-types";
+import type { RepositoryAnalysis } from "@/lib/github/repository-types";
 import RepositoryOverview from "@/components/RepositoryOverview";
 import CodeHealthAnalysis from "@/components/CodeHealthAnalysis";
 import {
@@ -27,23 +29,6 @@ import {
   AlertCircle,
   Sparkles,
 } from "lucide-react";
-
-type Repository = {
-  id: number;
-  name: string;
-  fullName: string;
-  description: string | null;
-  url: string;
-  language: string | null;
-  stars: number;
-  forks: number;
-  defaultBranch: string;
-  isPrivate: boolean;
-  owner: {
-    username: string;
-    avatarUrl: string;
-  };
-};
 
 type SourceFile = {
   path: string;
@@ -90,7 +75,7 @@ export default function RepositoryAnalysisContent() {
   const owner = params.owner;
   const repo = params.repo;
 
-  const [repository, setRepository] = useState<Repository | null>(null);
+  const [repository, setRepository] = useState<RepositoryAnalysis | null>(null);
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [languages, setLanguages] = useState<Language[]>([]);

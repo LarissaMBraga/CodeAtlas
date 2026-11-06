@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,19 +20,7 @@ import {
   fetchRepository,
   getRepositoryAnalysisPath,
 } from "@/lib/github/repository-client";
-
-type Repository = {
-  id: number;
-  name: string;
-  fullName: string;
-  description: string | null;
-  url: string;
-  language: string | null;
-  stars: number;
-  forks: number;
-  defaultBranch: string;
-  updatedAt: string;
-};
+import type { GitHubRepository } from "@/lib/github/repository-types";
 
 type GitHubIdentityData = {
   user_name?: string;
@@ -41,7 +30,7 @@ type GitHubIdentityData = {
 
 async function fetchGitHubRepositories(): Promise<{
   username: string;
-  repositories: Repository[];
+  repositories: GitHubRepository[];
 }> {
   const supabase = createSupabaseBrowserClient();
 
@@ -96,7 +85,7 @@ async function fetchGitHubRepositories(): Promise<{
 export default function GitHubRepositoriesCard() {
   const router = useRouter();
 
-  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -156,7 +145,7 @@ export default function GitHubRepositoriesCard() {
     }
   }
 
-  async function handleAnalyze(repository: Repository) {
+  async function handleAnalyze(repository: GitHubRepository) {
     setAnalyzingId(repository.id);
     setError("");
 

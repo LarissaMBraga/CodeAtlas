@@ -17,30 +17,14 @@ import {
   fetchRepository,
   getRepositoryAnalysisPath,
 } from "@/lib/github/repository-client";
-
-type Repository = {
-  id: number;
-  name: string;
-  fullName: string;
-  description: string | null;
-  url: string;
-  language: string | null;
-  stars: number;
-  forks: number;
-  defaultBranch: string;
-  isPrivate: boolean;
-  owner: {
-    username: string;
-    avatarUrl: string;
-  };
-};
+import type { RepositoryAnalysis } from "@/lib/github/repository-types";
 
 export default function PublicRepositoryInput() {
   const router = useRouter();
 
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [error, setError] = useState("");
-  const [repository, setRepository] = useState<Repository | null>(null);
+  const [repository, setRepository] = useState<RepositoryAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -61,7 +45,7 @@ export default function PublicRepositoryInput() {
     setIsAnalyzing(true);
 
     try {
-      const result = await fetchRepository<Repository>(normalizedUrl);
+      const result = await fetchRepository<RepositoryAnalysis>(normalizedUrl);
       setRepository(result);
     } catch (requestError) {
       setError(
