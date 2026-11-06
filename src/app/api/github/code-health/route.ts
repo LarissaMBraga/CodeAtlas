@@ -1153,12 +1153,18 @@ if (!treeResponse.ok) {
     };
 
     return NextResponse.json(result);
-  } catch {
-    return NextResponse.json(
-      {
-        error: "An unexpected error occurred during code health analysis.",
-      },
-      { status: 500 }
-    );
-  }
+  } catch (error) {
+  console.error("[Code Health] Analysis failed:", {
+    name: error instanceof Error ? error.name : "UnknownError",
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+
+  return NextResponse.json(
+    {
+      error: "An unexpected error occurred during code health analysis.",
+    },
+    { status: 500 }
+  );
+}
 }
