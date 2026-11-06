@@ -2,13 +2,46 @@
 import { NextResponse } from "next/server";
 import ts from "typescript";
 import { githubApiFetch } from "@/lib/github/app-auth";
+import type { StructureItem } from "@xberg-io/tree-sitter-language-pack";
+import { analyzeWithTreeSitter } from "@/lib/code-health/tree-sitter-analyzer";
+import { detectLanguageFromPath } from "@xberg-io/tree-sitter-language-pack";
+import { getLanguageByPath } from "@/lib/code-health/language-config";
 
 const MAX_FILES = 500;
 const MAX_FILE_SIZE = 1024 * 1024;
 const MAX_TOTAL_SIZE = 25 * 1024 * 1024;
 const CONCURRENCY = 5;
 
-const SUPPORTED_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const SPECIALIZED_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+]);
+
+function getExtension(path: string) {
+  const name = path.split("/").pop() || "";
+  const index = name.lastIndexOf(".");
+  return index >= 0 ? name.slice(index).toLowerCase() : "";
+}
+
+function isSupportedPath(path: string) {
+  const language = getLanguageByPath(path);
+
+  if (!language) {
+    return false;
+  }
+
+  if (SPECIALIZED_EXTENSIONS.has(getExtension(path))) {
+    return true;
+  }
+
+  return detectLanguageFromPath(path) !== null;
+}
 
 const IGNORED_DIRECTORIES = new Set([
   "node_modules",
@@ -112,7 +145,6 @@ type AnalyzedFile = {
   path: string;
   content: string;
   size: number;
-  sourceFile: ts.SourceFile;
   lines: number;
   complexity: number;
   functions: FunctionMetric[];
@@ -152,10 +184,30 @@ async function isRateLimitResponse(response: Response) {
   }
 }
 
-function getExtension(path: string) {
-  const name = path.split("/").pop() || "";
-  const index = name.lastIndexOf(".");
-  return index >= 0 ? name.slice(index).toLowerCase() : "";
+function isTestFile(path: string) {
+  const normalizedPath = path.replace(/\\/g, "/");
+  const fileName = normalizedPath.split("/").pop() ?? "";
+
+  return (
+    /(^|\/)__tests__\//i.test(normalizedPath) ||
+    /\.(test|spec)\.[^.]+$/i.test(fileName) ||
+    /^test_[^.]+\.[^.]+$/i.test(fileName) ||
+    /_(test|spec)\.[^.]+$/i.test(fileName) ||
+    /^Test[^.]+\.[^.]+$/.test(fileName) ||
+    /^[^.]+Test\.[^.]+$/.test(fileName)
+  );
+}
+
+function getTestTargetName(path: string) {
+  const fileName = path.replace(/\\/g, "/").split("/").pop() ?? "";
+  const withoutExtension = fileName.replace(/\.[^.]+$/, "");
+
+  return withoutExtension
+    .replace(/^(test_|Test)/, "")
+    .replace(/\.(test|spec)$/i, "")
+    .replace(/_(test|spec)$/i, "")
+    .replace(/Test$/, "")
+    .toLowerCase();
 }
 
 function isIgnoredPath(path: string) {
@@ -506,9 +558,136 @@ function analyzeFile(
     path,
     content,
     size,
-    sourceFile,
     lines,
     complexity: fileComplexity,
+    functions,
+    issues,
+  };
+}
+
+function analyzeGenericFile(
+  path: string,
+  content: string,
+  size: number
+): AnalyzedFile | null {
+  const analysis = analyzeWithTreeSitter(path, content);
+
+  if (!analysis) {
+    return null;
+  }
+
+  const issues: Issue[] = [];
+  const functions: FunctionMetric[] = [];
+
+  function collectFunctions(items: StructureItem[]) {
+    for (const item of items) {
+      const kind = item.kind?.type;
+
+      if (
+        (kind === "Function" || kind === "Method") &&
+        item.span
+      ) {
+        const startLine = item.span.startLine ?? 0;
+        const endLine = item.span.endLine ?? startLine;
+
+        functions.push({
+          name: item.name ?? "Anonymous function",
+          file: path,
+          line: startLine + 1,
+          complexity: 1,
+          lines: Math.max(1, endLine - startLine + 1),
+        });
+      }
+
+      if (item.children?.length) {
+        collectFunctions(item.children);
+      }
+    }
+  }
+
+  collectFunctions(analysis.result.structure ?? []);
+
+  for (const diagnostic of analysis.result.diagnostics ?? []) {
+    const severity: Issue["severity"] =
+      diagnostic.severity === "Error"
+        ? "high"
+        : diagnostic.severity === "Warning"
+          ? "medium"
+          : "info";
+
+    addIssue(
+      issues,
+      path,
+      (diagnostic.span?.startLine ?? 0) + 1,
+      "syntax",
+      severity,
+      "Syntax diagnostic",
+      diagnostic.message ?? "The parser detected a syntax issue.",
+      "Review the indicated location and correct the syntax if necessary."
+    );
+  }
+
+const markerPattern = /\b(TODO|FIXME|HACK)\b/gi;
+
+for (const comment of analysis.result.comments ?? []) {
+  if (!comment.text) continue;
+
+  let match: RegExpExecArray | null;
+
+  markerPattern.lastIndex = 0;
+
+  while ((match = markerPattern.exec(comment.text)) !== null) {
+    const marker = match[1].toUpperCase();
+
+    addIssue(
+      issues,
+      path,
+      (comment.span?.startLine ?? 0) + 1,
+      "code-smell",
+      marker === "FIXME" ? "medium" : "low",
+      `${marker} comment`,
+      `A ${marker} marker was found.`,
+      "Review the note and resolve it or document why it remains."
+    );
+  }
+}
+
+  const lines =
+    analysis.result.metrics?.totalLines ?? countLines(content);
+
+  if (lines > 500) {
+    addIssue(
+      issues,
+      path,
+      1,
+      "maintainability",
+      "high",
+      "Very large source file",
+      `This file contains ${lines} lines.`,
+      "Split the file into smaller modules with clear responsibilities."
+    );
+  } else if (lines > 300) {
+    addIssue(
+      issues,
+      path,
+      1,
+      "maintainability",
+      "medium",
+      "Large source file",
+      `This file contains ${lines} lines.`,
+      "Consider separating independent responsibilities."
+    );
+  }
+
+  return {
+    path,
+    content,
+    size,
+    lines,
+    complexity: functions.reduce(
+      (total, item) => total + item.complexity,
+      0
+    ),
     functions,
     issues,
   };
@@ -843,18 +1022,14 @@ if (!treeResponse.ok) {
 
     const unsupportedFiles = nonIgnoredFiles.filter(
       (item) =>
-        !SUPPORTED_EXTENSIONS.has(
-          getExtension(item.path as string)
-        )
+        !isSupportedPath(item.path as string)
     ).length;
 
     const allFiles: SourceFile[] = nonIgnoredFiles
       .filter(
         (item) =>
           typeof item.sha === "string" &&
-          SUPPORTED_EXTENSIONS.has(
-            getExtension(item.path as string)
-          )
+          isSupportedPath(item.path as string)
       )
       .map((item) => ({
         path: item.path as string,
@@ -928,13 +1103,31 @@ if (!treeResponse.ok) {
       0
     );
 
-    const analyzedFiles = successfulContents.map((item) =>
-      analyzeFile(
-        item.file.path,
-        item.content,
-        item.file.size
-      )
+   const analyzedFiles = successfulContents.map((item) => {
+  const extension = getExtension(item.file.path);
+
+  if (SPECIALIZED_EXTENSIONS.has(extension)) {
+    return analyzeFile(
+      item.file.path,
+      item.content,
+      item.file.size
     );
+  }
+
+  const result = analyzeGenericFile(
+    item.file.path,
+    item.content,
+    item.file.size
+  );
+
+  if (!result) {
+    throw new Error(
+      `No available analyzer for ${item.file.path}.`
+    );
+  }
+
+  return result;
+});
 
     const issues = analyzedFiles.flatMap(
       (file) => file.issues
@@ -994,8 +1187,8 @@ if (!treeResponse.ok) {
     };
 
     const testFiles = analyzedFiles.filter((file) =>
-      /\.(test|spec)\.[cm]?[jt]sx?$/.test(file.path)
-    ).length;
+  isTestFile(file.path)
+).length;
 
     const filesWithTests = analyzedFiles.filter((file) => {
       const baseName = file.path.replace(/\.[^.]+$/, "");
@@ -1077,18 +1270,24 @@ if (!treeResponse.ok) {
           (item) => item.title === "Explicit any type"
         ).length,
         catchBlocks: analyzedFiles.reduce(
-          (sum, file) =>
-            sum + (file.content.match(/\bcatch\b/g) || []).length,
-          0
-        ),
+  (sum, file) =>
+    sum +
+    (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
+      ? (file.content.match(/\bcatch\b/g) || []).length
+      : 0),
+  0
+),
         emptyCatchBlocks: issues.filter(
           (item) => item.title === "Empty catch block"
         ).length,
         unhandledPromiseSignals: analyzedFiles.reduce(
-          (sum, file) =>
-            sum + (file.content.match(/\.then\s*\(/g) || []).length,
-          0
-        ),
+  (sum, file) =>
+    sum +
+    (SPECIALIZED_EXTENSIONS.has(getExtension(file.path))
+      ? (file.content.match(/\.then\s*\(/g) || []).length
+      : 0),
+  0
+),
       },
       issues,
       functions: functions.sort(
@@ -1098,12 +1297,13 @@ if (!treeResponse.ok) {
         (a, b) => a.score - b.score
       ),
       coverage: {
-        supportedLanguages: [
-          "JavaScript",
-          "TypeScript",
-          "JSX",
-          "TSX",
-        ],
+        supportedLanguages: Array.from(
+  new Set(
+    analyzedFiles
+      .map((file) => getLanguageByPath(file.path)?.name)
+      .filter((language): language is string => Boolean(language))
+  )
+).sort(),
         supportedFiles: allFiles.length,
         unsupportedFiles,
         ignoredDirectoryFiles,
