@@ -1,4 +1,3 @@
-
 import {
   Handle,
   Position,
@@ -7,36 +6,26 @@ import {
 import { Code2, FileCode2 } from "lucide-react";
 import type { ArchitectureFlowNode } from "./architecture-types";
 
-const nodeStyles = {
-  component: {
-    container: "border-purple-500/40 bg-[#211735]",
-    icon: "bg-purple-500/15 text-purple-300",
-    label: "text-purple-300",
-    description: "React component",
-    Icon: Code2,
-  },
-  module: {
-    container: "border-[#353541] bg-[#191920]",
-    icon: "bg-[#30303c] text-gray-300",
-    label: "text-gray-400",
-    description: "Module",
-    Icon: FileCode2,
-  },
-} as const;
-
 export default function ArchitectureNode({
   data,
 }: NodeProps<ArchitectureFlowNode>) {
-  const styles =
-    data.type === "component"
-      ? nodeStyles.component
-      : nodeStyles.module;
+  const isComponent = data.type === "component";
 
-  const Icon = styles.Icon;
+  const containerStyle = isComponent
+    ? "border-purple-500/40 bg-[#211735]"
+    : "border-[#353541] bg-[#191920]";
+
+  const iconStyle = isComponent
+    ? "bg-purple-500/15 text-purple-300"
+    : "bg-[#30303c] text-gray-300";
+
+  const labelStyle = isComponent
+    ? "text-purple-300"
+    : "text-gray-400";
 
   return (
     <div
-      className={`min-w-[190px] rounded-xl border px-4 py-3 shadow-lg ${styles.container}`}
+      className={`min-w-[190px] rounded-xl border px-4 py-3 shadow-lg ${containerStyle}`}
     >
       <Handle
         type="target"
@@ -46,9 +35,13 @@ export default function ArchitectureNode({
 
       <div className="flex items-center gap-3">
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${styles.icon}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconStyle}`}
         >
-          <Icon size={17} />
+          {isComponent ? (
+            <Code2 size={17} />
+          ) : (
+            <FileCode2 size={17} />
+          )}
         </div>
 
         <div className="min-w-0">
@@ -57,9 +50,9 @@ export default function ArchitectureNode({
           </p>
 
           <p
-            className={`mt-1 text-[10px] font-medium uppercase tracking-wider ${styles.label}`}
+            className={`mt-1 text-[10px] font-medium uppercase tracking-wider ${labelStyle}`}
           >
-            {styles.description}
+            {isComponent ? "React component" : "Module"}
           </p>
         </div>
       </div>

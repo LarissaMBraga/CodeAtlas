@@ -1,4 +1,3 @@
-
 import {
   ChevronDown,
   ChevronRight,
@@ -6,98 +5,21 @@ import {
   Folder,
   FolderOpen,
 } from "lucide-react";
+import type {
+  FileTreeProps,
+  TreeNode,
+} from "./code-explorer-types";
 
-type SourceFile = {
-  path: string;
-  sha: string;
-  size: number;
-};
-
-type TreeNode = {
-  name: string;
-  path: string;
-  type: "file" | "folder";
-  file?: SourceFile;
-  children?: TreeNode[];
-};
-
-type FileTreeProps = {
+type FileTreeItemProps = {
   node: TreeNode;
   depth: number;
-  expandedFolders: Set<string>;
-  selectedPath: string | null;
-  onToggle: (path: string) => void;
-  onSelect: (file: SourceFile) => void;
-};
-
-function TreeItemIcon({
-  node,
-  isExpanded,
-}: {
-  node: TreeNode;
-  isExpanded: boolean;
-}) {
-  if (node.type === "folder") {
-    return isExpanded ? (
-      <FolderOpen size={14} className="text-[#b7a1ff]" />
-    ) : (
-      <Folder size={14} className="text-[#a98cff]" />
-    );
-  }
-
-  return <FileCode2 size={14} className="text-[#92919f]" />;
-}
-
-function TreeItemChevron({
-  isFolder,
-  isExpanded,
-}: {
-  isFolder: boolean;
-  isExpanded: boolean;
-}) {
-  if (!isFolder) {
-    return <span className="w-3 shrink-0" />;
-  }
-
-  return isExpanded ? (
-    <ChevronDown size={12} className="shrink-0 text-[#777483]" />
-  ) : (
-    <ChevronRight size={12} className="shrink-0 text-[#777483]" />
-  );
-}
-
-function TreeItemChildren({
-  node,
-  depth,
-  expandedFolders,
-  selectedPath,
-  onToggle,
-  onSelect,
-}: FileTreeProps) {
-  if (
-    node.type !== "folder" ||
-    !expandedFolders.has(node.path) ||
-    !node.children?.length
-  ) {
-    return null;
-  }
-
-  return (
-    <div>
-      {node.children.map((child) => (
-        <FileTreeItem
-          key={child.path}
-          node={child}
-          depth={depth + 1}
-          expandedFolders={expandedFolders}
-          selectedPath={selectedPath}
-          onToggle={onToggle}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
-  );
-}
+} & Pick<
+  FileTreeProps,
+  | "expandedFolders"
+  | "selectedPath"
+  | "onToggle"
+  | "onSelect"
+>;
 
 export default function FileTreeItem({
   node,
@@ -106,17 +28,16 @@ export default function FileTreeItem({
   selectedPath,
   onToggle,
   onSelect,
-}: FileTreeProps) {
-  const isFolder = node.type === "folder";
+}: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(node.path);
   const isSelected = selectedPath === node.path;
 
   const buttonStyle = isSelected
-    ? "bg-[#a98cff]/10 text-[#d5c8ff]"
-    : "text-[#a5a3b1] hover:bg-white/[0.04] hover:text-white";
+    ? "bg-[#9b7bff]/15 text-[#d5c7ff]"
+    : "text-[#a8a5b3] hover:bg-white/[0.04] hover:text-white";
 
   function handleClick() {
-    if (isFolder) {
+    if (node.type === "folder") {
       onToggle(node.path);
       return;
     }
@@ -131,28 +52,63 @@ export default function FileTreeItem({
       <button
         type="button"
         onClick={handleClick}
-        className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-xs transition-colors ${buttonStyle}`}
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
         title={node.path}
+        className={`flex w-full min-w-0 items-center gap-2 rounded-md py-2 pr-2 text-left text-xs transition ${buttonStyle}`}
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
       >
-        <TreeItemChevron
-          isFolder={isFolder}
-          isExpanded={isExpanded}
-        />
+        {node.type === "folder" ? (
+          <>
+            {isExpanded ? (
+              <ChevronDown size={13} className="shrink-0" />
+            ) : (
+              <ChevronRight size={13} className="shrink-0" />
+            )}
 
-        <TreeItemIcon node={node} isExpanded={isExpanded} />
+            {isExpanded ? (
+              <FolderOpen
+                size={15}
+                className="shrink-0 text-[#b7a1ff]"
+              />
+            ) : (
+              <Folder
+                size={15}
+                className="shrink-0 text-[#b7a1ff]"
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <span className="w-[13px] shrink-0" />
 
-        <span className="min-w-0 truncate">{node.name}</span>
+            <FileCode2
+              size={14}
+              className="shrink-0 text-[#a98cff]"
+            />
+          </>
+        )}
+
+        <span className="min-w-0 truncate">
+          {node.name}
+        </span>
       </button>
 
-      <TreeItemChildren
-        node={node}
-        depth={depth}
-        expandedFolders={expandedFolders}
-        selectedPath={selectedPath}
-        onToggle={onToggle}
-        onSelect={onSelect}
-      />
+      {node.type === "folder" &&
+        isExpanded &&
+        node.children.length > 0 && (
+          <div>
+            {node.children.map((child) => (
+              <FileTreeItem
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                expandedFolders={expandedFolders}
+                selectedPath={selectedPath}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        )}
     </div>
   );
 }

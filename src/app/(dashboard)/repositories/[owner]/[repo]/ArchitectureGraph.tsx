@@ -1,8 +1,6 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle } from "lucide-react";
 import ArchitectureGraphCanvas from "./architecture/ArchitectureGraphCanvas";
 import ArchitectureSummary from "./architecture/ArchitectureSummary";
 import {
@@ -18,64 +16,13 @@ type ArchitectureGraphProps = {
   repo: string;
 };
 
-async function fetchArchitecture(
-  owner: string,
-  repo: string
-): Promise<ArchitectureResponse> {
-  const response = await fetch("/api/github/architecture", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      repositoryUrl: `https://github.com/${owner}/${repo}`,
-    }),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      result.error || "Unable to analyze repository architecture."
-    );
-  }
-
-  return result as ArchitectureResponse;
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "An unexpected error occurred.";
-}
-
-function ArchitectureTruncationNotice({
-  maxFiles,
-}: {
-  maxFiles: number;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-      <AlertCircle
-        size={17}
-        className="mt-0.5 shrink-0 text-amber-400"
-      />
-
-      <p className="text-xs leading-relaxed text-amber-200/80">
-        This repository contains more source files than the current analysis limit.
-        The graph displays a partial architecture based on up to{" "}
-        {maxFiles} files.
-      </p>
-    </div>
-  );
-}
-
 export default function ArchitectureGraph({
   owner,
   repo,
 }: ArchitectureGraphProps) {
   const [architecture, setArchitecture] =
     useState<ArchitectureResponse | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -84,10 +31,31 @@ export default function ArchitectureGraph({
     setError("");
 
     try {
-      const result = await fetchArchitecture(owner, repo);
-      setArchitecture(result);
-    } catch (loadError) {
-      setError(getErrorMessage(loadError));
+      const response = await fetch("/api/github/architecture", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repositoryUrl: `https://github.com/${owner}/${repo}`,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Unable to analyze repository architecture."
+        );
+      }
+
+      setArchitecture(result as ArchitectureResponse);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An unexpected error occurred."
+      );
     } finally {
       setLoading(false);
     }
@@ -98,7 +66,9 @@ export default function ArchitectureGraph({
       void loadArchitecture();
     }, 0);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [loadArchitecture]);
 
   if (loading) {
@@ -125,9 +95,15 @@ export default function ArchitectureGraph({
       <ArchitectureSummary summary={architecture.summary} />
 
       {architecture.summary.truncated && (
-        <ArchitectureTruncationNotice
-          maxFiles={architecture.summary.maxFiles}
-        />
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+          <AlertCircleIcon />
+
+          <p className="text-xs leading-relaxed text-amber-200/80">
+            This repository contains more source files than the current analysis limit.
+            The graph displays a partial architecture based on up to{" "}
+            {architecture.summary.maxFiles} files.
+          </p>
+        </div>
       )}
 
       <ArchitectureGraphCanvas
@@ -139,5 +115,27 @@ export default function ArchitectureGraph({
         Select and drag nodes to explore the architecture. Use the controls or mouse wheel to zoom and navigate the graph.
       </p>
     </div>
+  );
+}
+
+function AlertCircleIcon() {
+  return (
+    <span className="mt-0.5 shrink-0 text-amber-400">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="17"
+        height="17"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </svg>
+    </span>
   );
 }

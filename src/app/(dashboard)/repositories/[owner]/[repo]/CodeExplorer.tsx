@@ -1,7 +1,7 @@
-
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { codeToHtml } from "shiki";
 import {
   Check,
   Code2,
@@ -13,10 +13,11 @@ import FileTree from "./code-explorer/FileTree";
 import CodeViewer from "./code-explorer/CodeViewer";
 import {
   buildFileTree,
+  getLanguage,
 } from "./code-explorer/file-tree-utils";
-import { useCodeExplorerFile } from "./code-explorer/useCodeExplorerFile";
 import type {
   CodeExplorerProps,
+  FileContent,
   SourceFile,
 } from "./code-explorer/code-explorer-types";
 
@@ -29,27 +30,94 @@ export default function CodeExplorer({
   const [selectedFile, setSelectedFile] = useState<SourceFile | null>(
     files[0] || null
   );
+
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set()
   );
-  const [copied, setCopied] = useState(false);
 
-  const {
-    fileContent,
-    highlightedCode,
-    isLoading,
-    error,
-  } = useCodeExplorerFile({
-    owner,
-    repo,
-    defaultBranch,
-    selectedFile,
-  });
+  const [fileContent, setFileContent] =
+    useState<FileContent | null>(null);
+
+  const [highlightedCode, setHighlightedCode] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const fileTree = useMemo(
     () => buildFileTree(files),
     [files]
   );
+
+  useEffect(() => {
+    if (!selectedFile) {
+      return;
+    }
+
+    const file = selectedFile;
+    const controller = new AbortController();
+
+    async function loadFile() {
+      setIsLoading(true);
+      setError("");
+      setFileContent(null);
+      setHighlightedCode("");
+
+      try {
+        const response = await fetch("/api/github/file", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            owner,
+            repo,
+            path: file.path,
+            ref: defaultBranch,
+          }),
+          signal: controller.signal,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Unable to load file content."
+          );
+        }
+
+        const content = result as FileContent;
+        const language = getLanguage(content.path);
+
+        const html = await codeToHtml(content.content, {
+          lang: language,
+          theme: "github-dark",
+        });
+
+        if (!controller.signal.aborted) {
+          setFileContent(content);
+          setHighlightedCode(html);
+        }
+      } catch (loadError) {
+        if (
+          loadError instanceof Error &&
+          loadError.name !== "AbortError" &&
+          !controller.signal.aborted
+        ) {
+          setError(loadError.message);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadFile();
+
+    return () => {
+      controller.abort();
+    };
+  }, [owner, repo, defaultBranch, selectedFile]);
 
   function toggleFolder(path: string) {
     setExpandedFolders((current) => {
