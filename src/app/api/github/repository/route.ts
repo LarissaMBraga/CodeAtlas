@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { githubApiFetch } from "@/lib/github/app-auth";
 import { isRateLimitResponse } from "@/lib/github/rate-limit";
@@ -75,60 +74,6 @@ type GitHubTreeItem = {
   size?: number;
 };
 
-type GitHubRepositoryData = {
-  id: number;
-  name: string;
-  full_name: string;
-  description: string | null;
-  html_url: string;
-  language: string | null;
-  stargazers_count: number;
-  forks_count: number;
-  default_branch: string;
-  private: boolean;
-  owner: {
-    login: string;
-    avatar_url: string;
-  };
-};
-
-type GitHubTreeData = {
-  tree?: GitHubTreeItem[];
-  truncated?: boolean;
-};
-
-type Result<T> =
-  | { ok: true; data: T }
-  | { ok: false; response: NextResponse };
-
-type RepositoryUrl = {
-  owner: string;
-  repository: string;
-};
-
-type SourceFileAnalysis = {
-  allSourceFiles: GitHubTreeItem[];
-  sourceFiles: {
-    path: string;
-    sha: string;
-    size: number;
-  }[];
-};
-
-type LanguageAnalysis = {
-  languages: {
-    name: string;
-    bytes: number;
-    percentage: number;
-    fileCount: number;
-  }[];
-  languageAnalysis: {
-    available: boolean;
-    totalBytes: number;
-    totalFiles: number;
-  };
-};
-
 function isIgnoredPath(path: string) {
   const normalizedPath = path.toLowerCase();
 
@@ -171,308 +116,6 @@ function createPermissionResponse() {
       status: 403,
     }
   );
-}
-
-function createRateLimitErrorResponse() {
-  return NextResponse.json(
-    {
-      error: "GitHub API rate limit reached. Please try again later.",
-    },
-    { status: 429 }
-  );
-}
-
-function createUnexpectedErrorResponse() {
-  return NextResponse.json(
-    {
-      error:
-        "An unexpected error occurred while retrieving the repository.",
-    },
-    { status: 500 }
-  );
-}
-
-function parseRepositoryUrl(body: unknown): Result<RepositoryUrl> {
-  if (!isRecord(body) || typeof body.repositoryUrl !== "string") {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "A valid repository URL is required." },
-        { status: 400 }
-      ),
-    };
-  }
-
-  const repositoryUrl = body.repositoryUrl
-    .trim()
-    .replace(/\/+$/, "");
-
-  let parsedUrl: URL;
-
-  try {
-    parsedUrl = new URL(repositoryUrl);
-  } catch {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Enter a valid GitHub repository URL." },
-        { status: 400 }
-      ),
-    };
-  }
-
-  if (
-    !["https:", "http:"].includes(parsedUrl.protocol) ||
-    parsedUrl.hostname !== "github.com" ||
-    parsedUrl.port ||
-    parsedUrl.username ||
-    parsedUrl.password
-  ) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Only GitHub repository URLs are supported." },
-        { status: 400 }
-      ),
-    };
-  }
-
-  const pathParts = parsedUrl.pathname
-    .split("/")
-    .filter(Boolean);
-
-  if (
-    pathParts.length !== 2 ||
-    !/^[a-zA-Z0-9-]+$/.test(pathParts[0]) ||
-    !/^[a-zA-Z0-9_.-]+$/.test(pathParts[1])
-  ) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Enter a valid GitHub repository URL." },
-        { status: 400 }
-      ),
-    };
-  }
-
-  const [owner, repository] = pathParts;
-  const repositoryName = repository.replace(/\.git$/i, "");
-
-  if (!repositoryName) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Enter a valid repository name." },
-        { status: 400 }
-      ),
-    };
-  }
-
-  return {
-    ok: true,
-    data: {
-      owner,
-      repository: repositoryName,
-    },
-  };
-}
-
-async function fetchRepositoryAndTree(
-  owner: string,
-  repository: string
-): Promise<
-  Result<{
-    repositoryData: GitHubRepositoryData;
-    treeData: GitHubTreeData;
-    tree: GitHubTreeItem[];
-    repositoryEndpoint: string;
-  }>
-> {
-  const repositoryEndpoint =
-    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
-
-  const githubResponse = await githubApiFetch(repositoryEndpoint);
-
-  if (githubResponse.status === 404) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Repository not found or not publicly accessible." },
-        { status: 404 }
-      ),
-    };
-  }
-
-  if (await isRateLimitResponse(githubResponse)) {
-    return {
-      ok: false,
-      response: createRateLimitResponse(githubResponse),
-    };
-  }
-
-  if (githubResponse.status === 403) {
-    return {
-      ok: false,
-      response: createPermissionResponse(),
-    };
-  }
-
-  if (!githubResponse.ok) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        {
-          error:
-            "Unable to retrieve repository information from GitHub.",
-        },
-        { status: 502 }
-      ),
-    };
-  }
-
-  const repositoryData: GitHubRepositoryData =
-    await githubResponse.json();
-
-  const treeResponse = await githubApiFetch(
-    `${repositoryEndpoint}/git/trees/${encodeURIComponent(repositoryData.default_branch)}?recursive=1`
-  );
-
-  if (await isRateLimitResponse(treeResponse)) {
-    return {
-      ok: false,
-      response: createRateLimitResponse(treeResponse),
-    };
-  }
-
-  if (treeResponse.status === 403) {
-    return {
-      ok: false,
-      response: createPermissionResponse(),
-    };
-  }
-
-  if (!treeResponse.ok) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Unable to retrieve the repository file structure." },
-        { status: 502 }
-      ),
-    };
-  }
-
-  const treeData: GitHubTreeData = await treeResponse.json();
-
-  return {
-    ok: true,
-    data: {
-      repositoryData,
-      treeData,
-      tree: treeData.tree ?? [],
-      repositoryEndpoint,
-    },
-  };
-}
-
-function analyzeSourceFiles(tree: GitHubTreeItem[]): SourceFileAnalysis {
-  const allSourceFiles = tree.filter((file) => {
-    const path = file.path.toLowerCase();
-
-    const isSourceFile = SOURCE_EXTENSIONS.some((extension) =>
-      path.endsWith(extension)
-    );
-
-    return (
-      file.type === "blob" &&
-      isSourceFile &&
-      !isIgnoredPath(path)
-    );
-  });
-
-  const sourceFiles = allSourceFiles
-    .slice(0, MAX_FILES)
-    .map((file) => ({
-      path: file.path,
-      sha: file.sha,
-      size: file.size ?? 0,
-    }));
-
-  return {
-    allSourceFiles,
-    sourceFiles,
-  };
-}
-
-async function analyzeLanguages(
-  repositoryEndpoint: string,
-  allSourceFiles: GitHubTreeItem[]
-): Promise<Result<LanguageAnalysis>> {
-  const languagesResponse = await githubApiFetch(
-    `${repositoryEndpoint}/languages`
-  );
-
-  if (await isRateLimitResponse(languagesResponse)) {
-    return {
-      ok: false,
-      response: createRateLimitResponse(languagesResponse),
-    };
-  }
-
-  if (languagesResponse.status === 403) {
-    return {
-      ok: false,
-      response: createPermissionResponse(),
-    };
-  }
-
-  let languageBytes: Record<string, number> = {};
-  let languageAnalysisAvailable = false;
-
-  if (languagesResponse.ok) {
-    languageBytes = await languagesResponse.json();
-    languageAnalysisAvailable = true;
-  }
-
-  const languageFileCounts: Record<string, number> = {};
-
-  for (const file of allSourceFiles) {
-    const extension = `.${file.path.split(".").pop()?.toLowerCase()}`;
-    const language = LANGUAGE_BY_EXTENSION[extension];
-
-    if (language) {
-      languageFileCounts[language] =
-        (languageFileCounts[language] ?? 0) + 1;
-    }
-  }
-
-  const totalLanguageBytes = Object.values(languageBytes).reduce(
-    (total, bytes) => total + bytes,
-    0
-  );
-
-  const languages = Object.entries(languageBytes)
-    .map(([name, bytes]) => ({
-      name,
-      bytes,
-      percentage:
-        totalLanguageBytes > 0
-          ? (bytes / totalLanguageBytes) * 100
-          : 0,
-      fileCount: languageFileCounts[name] ?? 0,
-    }))
-    .sort((a, b) => b.bytes - a.bytes);
-
-  return {
-    ok: true,
-    data: {
-      languages,
-      languageAnalysis: {
-        available: languageAnalysisAvailable,
-        totalBytes: totalLanguageBytes,
-        totalFiles: allSourceFiles.length,
-      },
-    },
-  };
 }
 
 function getDependencies(
@@ -661,177 +304,312 @@ async function fetchManifests(
   return results;
 }
 
-async function analyzeDependencies(
-  owner: string,
-  repository: string,
-  tree: GitHubTreeItem[],
-  treeData: GitHubTreeData
-) {
-  const allPaths = new Set(
-    tree
-      .filter((file) => file.type === "blob")
-      .map((file) => file.path)
-  );
-
-  const allManifests = tree.filter(
-    (file) =>
-      file.type === "blob" &&
-      file.path.split("/").pop() === "package.json" &&
-      !isIgnoredPath(file.path)
-  );
-
-  const selectedManifests = allManifests.slice(
-    0,
-    MAX_PACKAGE_MANIFESTS
-  );
-
-  const manifestResults = await fetchManifests(
-    owner,
-    repository,
-    selectedManifests,
-    allPaths
-  );
-
-  const manifests = manifestResults
-    .filter(
-      (manifest): manifest is PackageManifestAnalysis =>
-        manifest !== null
-    )
-    .sort((a, b) => a.path.localeCompare(b.path));
-
-  const allDependencies = manifests.flatMap(
-    (manifest) => manifest.dependencies
-  );
-
-  return {
-    available: manifests.length > 0,
-    manifestFound: allManifests.length > 0,
-    manifestCount: manifests.length,
-    manifestPaths: manifests.map((manifest) => manifest.path),
-    manifests,
-    totalDependencies: allDependencies.length,
-    productionCount: manifests.reduce(
-      (total, manifest) => total + manifest.productionCount,
-      0
-    ),
-    developmentCount: manifests.reduce(
-      (total, manifest) => total + manifest.developmentCount,
-      0
-    ),
-    peerCount: manifests.reduce(
-      (total, manifest) => total + manifest.peerCount,
-      0
-    ),
-    optionalCount: manifests.reduce(
-      (total, manifest) => total + manifest.optionalCount,
-      0
-    ),
-    dependencies: allDependencies,
-    truncated:
-      allManifests.length > MAX_PACKAGE_MANIFESTS ||
-      Boolean(treeData.truncated),
-  };
-}
-
-function createRepositoryResponse(
-  repositoryData: GitHubRepositoryData,
-  treeData: GitHubTreeData,
-  sourceAnalysis: SourceFileAnalysis,
-  languageAnalysis: LanguageAnalysis,
-  dependenciesAnalysis: Awaited<
-    ReturnType<typeof analyzeDependencies>
-  >
-) {
-  return NextResponse.json({
-    repository: {
-      id: repositoryData.id,
-      name: repositoryData.name,
-      fullName: repositoryData.full_name,
-      description: repositoryData.description,
-      url: repositoryData.html_url,
-      language: repositoryData.language,
-      stars: repositoryData.stargazers_count,
-      forks: repositoryData.forks_count,
-      defaultBranch: repositoryData.default_branch,
-      isPrivate: repositoryData.private,
-      owner: {
-        username: repositoryData.owner.login,
-        avatarUrl: repositoryData.owner.avatar_url,
-      },
-    },
-    files: sourceAnalysis.sourceFiles,
-    languages: languageAnalysis.languages,
-    languageAnalysis: languageAnalysis.languageAnalysis,
-    dependenciesAnalysis,
-    analysis: {
-      totalSourceFiles: sourceAnalysis.sourceFiles.length,
-      maxFiles: MAX_FILES,
-      truncated:
-        Boolean(treeData.truncated) ||
-        sourceAnalysis.allSourceFiles.length > MAX_FILES,
-    },
-  });
-}
-
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
-    const parsedRepository = parseRepositoryUrl(body);
 
-    if (!parsedRepository.ok) {
-      return parsedRepository.response;
+    if (
+      !isRecord(body) ||
+      typeof body.repositoryUrl !== "string"
+    ) {
+      return NextResponse.json(
+        { error: "A valid repository URL is required." },
+        { status: 400 }
+      );
     }
 
-    const { owner, repository } = parsedRepository.data;
+    const repositoryUrl = body.repositoryUrl
+      .trim()
+      .replace(/\/+$/, "");
 
-    const repositoryResult = await fetchRepositoryAndTree(
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(repositoryUrl);
+    } catch {
+      return NextResponse.json(
+        { error: "Enter a valid GitHub repository URL." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !["https:", "http:"].includes(parsedUrl.protocol) ||
+      parsedUrl.hostname !== "github.com" ||
+      parsedUrl.port ||
+      parsedUrl.username ||
+      parsedUrl.password
+    ) {
+      return NextResponse.json(
+        { error: "Only GitHub repository URLs are supported." },
+        { status: 400 }
+      );
+    }
+
+    const pathParts = parsedUrl.pathname
+      .split("/")
+      .filter(Boolean);
+
+    if (
+      pathParts.length !== 2 ||
+      !/^[a-zA-Z0-9-]+$/.test(pathParts[0]) ||
+      !/^[a-zA-Z0-9_.-]+$/.test(pathParts[1])
+    ) {
+      return NextResponse.json(
+        { error: "Enter a valid GitHub repository URL." },
+        { status: 400 }
+      );
+    }
+
+    const [owner, repository] = pathParts;
+    const repositoryName = repository.replace(/\.git$/i, "");
+
+    if (!repositoryName) {
+      return NextResponse.json(
+        { error: "Enter a valid repository name." },
+        { status: 400 }
+      );
+    }
+
+    const repositoryEndpoint =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}`;
+
+    const githubResponse = await githubApiFetch(repositoryEndpoint);
+
+    if (githubResponse.status === 404) {
+      return NextResponse.json(
+        { error: "Repository not found or not publicly accessible." },
+        { status: 404 }
+      );
+    }
+
+    if (await isRateLimitResponse(githubResponse)) {
+      return createRateLimitResponse(githubResponse);
+    }
+
+    if (githubResponse.status === 403) {
+      return createPermissionResponse();
+    }
+
+    if (!githubResponse.ok) {
+      return NextResponse.json(
+        { error: "Unable to retrieve repository information from GitHub." },
+        { status: 502 }
+      );
+    }
+
+    const data = await githubResponse.json();
+
+    const treeResponse = await githubApiFetch(
+      `${repositoryEndpoint}/git/trees/${encodeURIComponent(data.default_branch)}?recursive=1`
+    );
+
+    if (await isRateLimitResponse(treeResponse)) {
+      return createRateLimitResponse(treeResponse);
+    }
+
+    if (treeResponse.status === 403) {
+      return createPermissionResponse();
+    }
+
+    if (!treeResponse.ok) {
+      return NextResponse.json(
+        { error: "Unable to retrieve the repository file structure." },
+        { status: 502 }
+      );
+    }
+
+    const treeData = await treeResponse.json();
+    const tree: GitHubTreeItem[] = treeData.tree ?? [];
+
+    const allSourceFiles = tree.filter((file) => {
+      const path = file.path.toLowerCase();
+
+      const isSourceFile = SOURCE_EXTENSIONS.some((extension) =>
+        path.endsWith(extension)
+      );
+
+      return (
+        file.type === "blob" &&
+        isSourceFile &&
+        !isIgnoredPath(path)
+      );
+    });
+
+    const sourceFiles = allSourceFiles
+      .slice(0, MAX_FILES)
+      .map((file) => ({
+        path: file.path,
+        sha: file.sha,
+        size: file.size ?? 0,
+      }));
+
+    const languagesResponse = await githubApiFetch(
+      `${repositoryEndpoint}/languages`
+    );
+
+    if (await isRateLimitResponse(languagesResponse)) {
+      return createRateLimitResponse(languagesResponse);
+    }
+
+    if (languagesResponse.status === 403) {
+      return createPermissionResponse();
+    }
+
+    let languageBytes: Record<string, number> = {};
+    let languageAnalysisAvailable = false;
+
+    if (languagesResponse.ok) {
+      languageBytes = await languagesResponse.json();
+      languageAnalysisAvailable = true;
+    }
+
+    const languageFileCounts: Record<string, number> = {};
+
+    for (const file of allSourceFiles) {
+      const extension = `.${file.path.split(".").pop()?.toLowerCase()}`;
+      const language = LANGUAGE_BY_EXTENSION[extension];
+
+      if (language) {
+        languageFileCounts[language] =
+          (languageFileCounts[language] ?? 0) + 1;
+      }
+    }
+
+    const totalLanguageBytes = Object.values(languageBytes).reduce(
+      (total, bytes) => total + bytes,
+      0
+    );
+
+    const languages = Object.entries(languageBytes)
+      .map(([name, bytes]) => ({
+        name,
+        bytes,
+        percentage:
+          totalLanguageBytes > 0
+            ? (bytes / totalLanguageBytes) * 100
+            : 0,
+        fileCount: languageFileCounts[name] ?? 0,
+      }))
+      .sort((a, b) => b.bytes - a.bytes);
+
+    const allPaths = new Set(
+      tree
+        .filter((file) => file.type === "blob")
+        .map((file) => file.path)
+    );
+
+    const allManifests = tree.filter(
+      (file) =>
+        file.type === "blob" &&
+        file.path.split("/").pop() === "package.json" &&
+        !isIgnoredPath(file.path)
+    );
+
+    const selectedManifests = allManifests.slice(
+      0,
+      MAX_PACKAGE_MANIFESTS
+    );
+
+    const manifestResults = await fetchManifests(
       owner,
-      repository
+      repositoryName,
+      selectedManifests,
+      allPaths
     );
 
-    if (!repositoryResult.ok) {
-      return repositoryResult.response;
-    }
+    const manifests = manifestResults
+      .filter(
+        (manifest): manifest is PackageManifestAnalysis =>
+          manifest !== null
+      )
+      .sort((a, b) => a.path.localeCompare(b.path));
 
-    const {
-      repositoryData,
-      treeData,
-      tree,
-    } = repositoryResult.data;
-
-    const sourceAnalysis = analyzeSourceFiles(tree);
-
-    const languageResult = await analyzeLanguages(
-      repositoryResult.data.repositoryEndpoint,
-      sourceAnalysis.allSourceFiles
+    const allDependencies = manifests.flatMap(
+      (manifest) => manifest.dependencies
     );
 
-    if (!languageResult.ok) {
-      return languageResult.response;
-    }
+    const dependenciesAnalysis = {
+      available: manifests.length > 0,
+      manifestFound: allManifests.length > 0,
+      manifestCount: manifests.length,
+      manifestPaths: manifests.map((manifest) => manifest.path),
+      manifests,
+      totalDependencies: allDependencies.length,
+      productionCount: manifests.reduce(
+        (total, manifest) => total + manifest.productionCount,
+        0
+      ),
+      developmentCount: manifests.reduce(
+        (total, manifest) => total + manifest.developmentCount,
+        0
+      ),
+      peerCount: manifests.reduce(
+        (total, manifest) => total + manifest.peerCount,
+        0
+      ),
+      optionalCount: manifests.reduce(
+        (total, manifest) => total + manifest.optionalCount,
+        0
+      ),
+      dependencies: allDependencies,
+      truncated:
+        allManifests.length > MAX_PACKAGE_MANIFESTS ||
+        Boolean(treeData.truncated),
+    };
 
-    const dependenciesAnalysis = await analyzeDependencies(
-      owner,
-      repository,
-      tree,
-      treeData
-    );
-
-    return createRepositoryResponse(
-      repositoryData,
-      treeData,
-      sourceAnalysis,
-      languageResult.data,
-      dependenciesAnalysis
-    );
+    return NextResponse.json({
+      repository: {
+        id: data.id,
+        name: data.name,
+        fullName: data.full_name,
+        description: data.description,
+        url: data.html_url,
+        language: data.language,
+        stars: data.stargazers_count,
+        forks: data.forks_count,
+        defaultBranch: data.default_branch,
+        isPrivate: data.private,
+        owner: {
+          username: data.owner.login,
+          avatarUrl: data.owner.avatar_url,
+        },
+      },
+      files: sourceFiles,
+      languages,
+      languageAnalysis: {
+        available: languageAnalysisAvailable,
+        totalBytes: totalLanguageBytes,
+        totalFiles: allSourceFiles.length,
+      },
+      dependenciesAnalysis,
+      analysis: {
+        totalSourceFiles: sourceFiles.length,
+        maxFiles: MAX_FILES,
+        truncated:
+          Boolean(treeData.truncated) ||
+          allSourceFiles.length > MAX_FILES,
+      },
+    });
   } catch (error) {
     if (
       error instanceof Error &&
       error.message === "GITHUB_RATE_LIMIT"
     ) {
-      return createRateLimitErrorResponse();
+      return NextResponse.json(
+        {
+          error: "GitHub API rate limit reached. Please try again later.",
+        },
+        { status: 429 }
+      );
     }
 
-    return createUnexpectedErrorResponse();
+    return NextResponse.json(
+      {
+        error:
+          "An unexpected error occurred while retrieving the repository.",
+      },
+      { status: 500 }
+    );
   }
 }
