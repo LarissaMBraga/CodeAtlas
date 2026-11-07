@@ -1,25 +1,228 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { codeToHtml } from "shiki";
 import {
-  Check,
-  Code2,
-  Copy,
+  ChevronDown,
+  ChevronRight,
   FileCode2,
   Folder,
+  FolderOpen,
+  LoaderCircle,
+  AlertCircle,
+  Code2,
+  Copy,
+  Check,
 } from "lucide-react";
-import FileTree from "./code-explorer/FileTree";
-import CodeViewer from "./code-explorer/CodeViewer";
-import {
-  buildFileTree,
-  getLanguage,
-} from "./code-explorer/file-tree-utils";
-import type {
-  CodeExplorerProps,
-  FileContent,
-  SourceFile,
-} from "./code-explorer/code-explorer-types";
+
+type SourceFile = {
+  path: string;
+  sha: string;
+  size: number;
+};
+
+type FileContent = {
+  name: string;
+  path: string;
+  sha: string;
+  size: number;
+  content: string;
+};
+
+type TreeNode = {
+  name: string;
+  path: string;
+  type: "folder" | "file";
+  children: TreeNode[];
+  file?: SourceFile;
+};
+
+type CodeExplorerProps = {
+  owner: string;
+  repo: string;
+  defaultBranch: string;
+  files: SourceFile[];
+};
+
+function buildFileTree(files: SourceFile[]): TreeNode[] {
+  const root: TreeNode[] = [];
+
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let currentLevel = root;
+    let currentPath = "";
+
+    parts.forEach((part, index) => {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+      const isFile = index === parts.length - 1;
+      let node = currentLevel.find((item) => item.name === part);
+
+      if (!node) {
+        node = {
+          name: part,
+          path: currentPath,
+          type: isFile ? "file" : "folder",
+          children: [],
+          file: isFile ? file : undefined,
+        };
+
+        currentLevel.push(node);
+      }
+
+      currentLevel = node.children;
+    });
+  }
+
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === "folder" ? -1 : 1;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
+    nodes.forEach((node) => sortNodes(node.children));
+  };
+
+  sortNodes(root);
+
+  return root;
+}
+
+function getLanguage(path: string) {
+  const extension = path.split(".").pop()?.toLowerCase();
+
+  const languages: Record<string, string> = {
+    ts: "typescript",
+    tsx: "tsx",
+    js: "javascript",
+    jsx: "jsx",
+    mjs: "javascript",
+    cjs: "javascript",
+    json: "json",
+    css: "css",
+    scss: "scss",
+    html: "html",
+    vue: "vue",
+    svelte: "svelte",
+    py: "python",
+    java: "java",
+    cs: "csharp",
+    cpp: "cpp",
+    c: "c",
+    h: "c",
+    go: "go",
+    rs: "rust",
+    php: "php",
+    rb: "ruby",
+    sql: "sql",
+    md: "markdown",
+    yaml: "yaml",
+    yml: "yaml",
+    xml: "xml",
+    sh: "bash",
+    bash: "bash",
+    toml: "toml",
+    env: "dotenv",
+  };
+
+  return languages[extension || ""] || "text";
+}
+
+function FileTree({
+  nodes,
+  depth = 0,
+  expandedFolders,
+  selectedPath,
+  onToggle,
+  onSelect,
+}: {
+  nodes: TreeNode[];
+  depth?: number;
+  expandedFolders: Set<string>;
+  selectedPath: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (file: SourceFile) => void;
+}) {
+  return (
+    <>
+      {nodes.map((node) => {
+        const isExpanded = expandedFolders.has(node.path);
+        const isSelected = selectedPath === node.path;
+
+        return (
+          <div key={node.path}>
+            <button
+              type="button"
+              onClick={() => {
+                if (node.type === "folder") {
+                  onToggle(node.path);
+                } else if (node.file) {
+                  onSelect(node.file);
+                }
+              }}
+              title={node.path}
+              className={`flex w-full min-w-0 items-center gap-2 rounded-md py-2 pr-2 text-left text-xs transition ${
+                isSelected
+                  ? "bg-[#9b7bff]/15 text-[#d5c7ff]"
+                  : "text-[#a8a5b3] hover:bg-white/[0.04] hover:text-white"
+              }`}
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+            >
+              {node.type === "folder" ? (
+                <>
+                  {isExpanded ? (
+                    <ChevronDown size={13} className="shrink-0" />
+                  ) : (
+                    <ChevronRight size={13} className="shrink-0" />
+                  )}
+
+                  {isExpanded ? (
+                    <FolderOpen
+                      size={15}
+                      className="shrink-0 text-[#b7a1ff]"
+                    />
+                  ) : (
+                    <Folder
+                      size={15}
+                      className="shrink-0 text-[#b7a1ff]"
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="w-[13px] shrink-0" />
+                  <FileCode2
+                    size={14}
+                    className="shrink-0 text-[#a98cff]"
+                  />
+                </>
+              )}
+
+              <span className="min-w-0 truncate">{node.name}</span>
+            </button>
+
+            {node.type === "folder" &&
+              isExpanded &&
+              node.children.length > 0 && (
+                <FileTree
+                  nodes={node.children}
+                  depth={depth + 1}
+                  expandedFolders={expandedFolders}
+                  selectedPath={selectedPath}
+                  onToggle={onToggle}
+                  onSelect={onSelect}
+                />
+              )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 export default function CodeExplorer({
   owner,
@@ -30,33 +233,24 @@ export default function CodeExplorer({
   const [selectedFile, setSelectedFile] = useState<SourceFile | null>(
     files[0] || null
   );
-
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set()
   );
-
-  const [fileContent, setFileContent] =
-    useState<FileContent | null>(null);
-
+  const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [highlightedCode, setHighlightedCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const fileTree = useMemo(
-    () => buildFileTree(files),
-    [files]
-  );
+  const fileTree = useMemo(() => buildFileTree(files), [files]);
 
-  useEffect(() => {
-    if (!selectedFile) {
-      return;
-    }
+ useEffect(() => {
+  if (!selectedFile) return;
 
-    const file = selectedFile;
-    const controller = new AbortController();
+  const file = selectedFile;
+  const controller = new AbortController();
 
-    async function loadFile() {
+  async function loadFile() {
       setIsLoading(true);
       setError("");
       setFileContent(null);
@@ -80,21 +274,18 @@ export default function CodeExplorer({
         const result = await response.json();
 
         if (!response.ok) {
-          throw new Error(
-            result.error || "Unable to load file content."
-          );
+          throw new Error(result.error || "Unable to load file content.");
         }
 
-        const content = result as FileContent;
-        const language = getLanguage(content.path);
+        const language = getLanguage(result.path);
 
-        const html = await codeToHtml(content.content, {
+        const html = await codeToHtml(result.content, {
           lang: language,
           theme: "github-dark",
         });
 
         if (!controller.signal.aborted) {
-          setFileContent(content);
+          setFileContent(result);
           setHighlightedCode(html);
         }
       } catch (loadError) {
@@ -134,9 +325,7 @@ export default function CodeExplorer({
   }
 
   async function copyCode() {
-    if (!fileContent) {
-      return;
-    }
+    if (!fileContent) return;
 
     await navigator.clipboard.writeText(fileContent.content);
     setCopied(true);
@@ -158,7 +347,6 @@ export default function CodeExplorer({
             <h2 className="text-sm font-semibold text-white">
               Code Explorer
             </h2>
-
             <p className="mt-1 text-[10px] text-[#777483]">
               Browse repository source files
             </p>
@@ -216,21 +404,46 @@ export default function CodeExplorer({
               disabled={!fileContent || isLoading}
               className="flex shrink-0 items-center gap-2 rounded-md border border-[#302d3b] bg-[#191720] px-3 py-2 text-[10px] text-[#a8a5b3] transition hover:border-[#9b7bff]/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {copied ? (
-                <Check size={13} />
-              ) : (
-                <Copy size={13} />
-              )}
-
+              {copied ? <Check size={13} /> : <Copy size={13} />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
 
-          <CodeViewer
-            isLoading={isLoading}
-            error={error}
-            highlightedCode={highlightedCode}
-          />
+          <div className="min-h-[510px] min-w-0 flex-1 overflow-auto bg-[#0d0c12] [scrollbar-color:#51466f_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#51466f]">
+            {isLoading ? (
+              <div className="flex min-h-[510px] items-center justify-center gap-3 text-xs text-[#92919f]">
+                <LoaderCircle
+                  size={18}
+                  className="animate-spin text-[#b7a1ff]"
+                />
+                Loading source code...
+              </div>
+            ) : error ? (
+              <div className="flex min-h-[510px] flex-col items-center justify-center px-6 text-center">
+                <AlertCircle size={24} className="text-red-400" />
+                <p className="mt-3 text-xs font-medium text-white">
+                  Unable to load file
+                </p>
+                <p className="mt-2 max-w-sm text-xs leading-5 text-[#92919f]">
+                  {error}
+                </p>
+              </div>
+            ) : highlightedCode ? (
+              <div className="code-explorer-content min-w-0 p-4">
+                <div
+                  className="min-w-max text-xs leading-6 [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:!font-mono [&_code]:!font-mono"
+                  dangerouslySetInnerHTML={{ __html: highlightedCode }}
+                />
+              </div>
+            ) : (
+              <div className="flex min-h-[510px] flex-col items-center justify-center text-center">
+                <FileCode2 size={28} className="text-[#51466f]" />
+                <p className="mt-3 text-xs text-[#92919f]">
+                  Select a file to explore its source code.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="flex min-h-9 items-center justify-between gap-3 border-t border-[#252530] bg-[#15141c] px-4">
             <span className="truncate text-[10px] text-[#777483]">
