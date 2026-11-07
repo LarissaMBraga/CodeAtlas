@@ -1,7 +1,14 @@
+"use client";
 
 import { ChevronRight, Bell, Search } from "lucide-react";
+import {
+  ProfileAvatar,
+  useProfile,
+} from "@/components/dashboard/profile/ProfileProvider";
 
 export default function DashboardHeader() {
+  const { profile, toggleMenu, openAnchor } = useProfile();
+
   return (
     <header className="flex h-[76px] items-center justify-between border-b border-[#252530] px-6 sm:px-8">
       <div className="flex items-center gap-2 text-xs">
@@ -27,9 +34,15 @@ export default function DashboardHeader() {
           <Bell size={17} />
         </button>
 
-        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#9b7bff]/20 bg-[#9b7bff]/10 text-xs font-semibold text-[#c5b5ff]">
-          CA
-        </div>
+        <button
+          type="button"
+          aria-label="Open account details"
+          aria-expanded={openAnchor === "header"}
+          onClick={() => toggleMenu("header")}
+          className="rounded-full transition hover:ring-2 hover:ring-[#9b7bff]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b7bff]"
+        >
+          <ProfileAvatar profile={profile} />
+        </button>
       </div>
     </header>
   );

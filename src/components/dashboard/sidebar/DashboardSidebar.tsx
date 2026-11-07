@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -17,6 +16,10 @@ import {
   ChevronLeft,
   Sparkles,
 } from "lucide-react";
+import {
+  ProfileAvatar,
+  useProfile,
+} from "@/components/dashboard/profile/ProfileProvider";
 
 const navigation = [
   {
@@ -39,6 +42,7 @@ const navigation = [
 
 export default function DashboardSidebar() {
   const pathname = usePathname();
+  const { profile, toggleMenu, openAnchor } = useProfile();
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[260px] flex-col border-r border-[#252530] bg-[#0d0d13] lg:flex">
@@ -148,20 +152,26 @@ export default function DashboardSidebar() {
           Help & Support
         </button>
 
-        <div className="mt-3 flex items-center gap-3 border-t border-[#252530] px-2 pt-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#9b7bff]/15 text-xs font-semibold text-[#c5b5ff]">
-            CA
-          </div>
+        <button
+          type="button"
+          aria-label="Open account details"
+          aria-expanded={openAnchor === "sidebar"}
+          onClick={() => toggleMenu("sidebar")}
+          className="mt-3 flex w-full items-center gap-3 border-t border-[#252530] px-2 pt-4 text-left transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b7bff]"
+        >
+          <ProfileAvatar profile={profile} />
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-white">
-              CODE ATLAS User
+              {profile?.name || "CODE ATLAS User"}
             </p>
-            <p className="text-[10px] text-[#777483]">Free workspace</p>
+            <p className="truncate text-[10px] text-[#777483]">
+              {profile?.email || "Loading account..."}
+            </p>
           </div>
 
-          <Settings size={15} className="text-[#777483]" />
-        </div>
+          <Settings size={15} className="shrink-0 text-[#777483]" />
+        </button>
       </div>
     </aside>
   );
