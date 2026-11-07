@@ -87,7 +87,7 @@ export default function CodeHealthAnalysis({
 
   const visibleIssues = showAllIssues
     ? filteredIssues
-    : filteredIssues.slice(0, 8);
+    : filteredIssues.slice(0, 3);
 
   const categories = Object.keys(data.categories).sort();
 
@@ -582,7 +582,7 @@ export default function CodeHealthAnalysis({
           )}
         </div>
 
-        {filteredIssues.length > 8 && (
+        {filteredIssues.length > 3 && (
           <button
             type="button"
             onClick={() => setShowAllIssues((current) => !current)}
