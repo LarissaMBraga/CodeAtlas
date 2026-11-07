@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,6 +9,7 @@ import CodeExplorer from "./CodeExplorer";
 import LanguagesAnalysis from "./LanguagesAnalysis";
 import DependenciesAnalysis from "./DependenciesAnalysis";
 import SecurityAnalysis from "./SecurityAnalysis";
+import ImpactAnalysis from "./ImpactAnalysis";
 import type { DependenciesAnalysisData } from "./dependencies-analysis-types";
 import type { RepositoryAnalysis } from "@/lib/github/repository-types";
 import RepositoryOverview from "@/components/RepositoryOverview";
@@ -66,7 +66,7 @@ const sections = [
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Available" },
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Available" },
   { name: "Security", id: "security", icon: ShieldCheck, status: "Available" },
-  { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Coming soon" },
+  { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Available" },
   { name: "AI Investigator", id: "ai-investigator", icon: Bot, status: "Coming soon" },
 ];
 
@@ -303,7 +303,8 @@ export default function RepositoryAnalysisContent() {
               section.id === "languages" ||
               section.id === "dependencies" ||
               section.id === "code-health" ||
-              section.id === "security";
+              section.id === "security" ||
+              section.id === "impact-analysis";
 
             return (
               <a
@@ -441,6 +442,22 @@ export default function RepositoryAnalysisContent() {
               className="mt-8 scroll-mt-6"
             >
               <SecurityAnalysis
+                owner={owner}
+                repo={repo}
+                branch={repository.defaultBranch}
+              />
+            </section>
+          );
+        }
+
+        if (section.id === "impact-analysis") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <ImpactAnalysis
                 owner={owner}
                 repo={repo}
                 branch={repository.defaultBranch}
