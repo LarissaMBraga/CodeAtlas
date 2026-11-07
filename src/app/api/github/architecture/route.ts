@@ -27,6 +27,11 @@ type GitHubBlob = {
   encoding?: string;
 };
 
+type GitHubTree = {
+  tree: GitHubTreeItem[];
+  truncated: boolean;
+};
+
 type ArchitectureNode = {
   id: string;
   label: string;
@@ -39,6 +44,115 @@ type ArchitectureEdge = {
   source: string;
   target: string;
 };
+
+type ParsedRepository = {
+  owner: string;
+  repository: string;
+};
+
+type ArchitectureGraph = {
+  nodes: ArchitectureNode[];
+  edges: ArchitectureEdge[];
+  totalComponents: number;
+};
+
+function parseRepositoryUrl(value: unknown): ParsedRepository | NextResponse {
+  if (typeof value !== "string") {
+    return NextResponse.json(
+      { error: "A valid repository URL is required." },
+      { status: 400 }
+    );
+  }
+
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    return NextResponse.json(
+      { error: "The repository URL is invalid." },
+      { status: 400 }
+    );
+  }
+
+  const isGitHubUrl =
+    ["https:", "http:"].includes(parsedUrl.protocol) &&
+    ["github.com", "www.github.com"].includes(parsedUrl.hostname) &&
+    !parsedUrl.port &&
+    !parsedUrl.username &&
+    !parsedUrl.password;
+
+  if (!isGitHubUrl) {
+    return NextResponse.json(
+      { error: "Only GitHub repositories are supported." },
+      { status: 400 }
+    );
+  }
+
+  const segments = parsedUrl.pathname.split("/").filter(Boolean);
+  const [owner, repositoryName] = segments;
+
+  if (
+    segments.length !== 2 ||
+    !/^[a-zA-Z0-9-]+$/.test(owner) ||
+    !/^[a-zA-Z0-9_.-]+$/.test(repositoryName)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "The repository URL must include a valid owner and repository name.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const repository = repositoryName.replace(/\.git$/i, "");
+
+  if (!repository) {
+    return NextResponse.json(
+      { error: "The repository name is invalid." },
+      { status: 400 }
+    );
+  }
+
+  return { owner, repository };
+}
+
+async function fetchGitHubJson<T>(endpoint: string): Promise<T> {
+  const response = await githubApiFetch(endpoint);
+
+  if (await isRateLimitResponse(response)) {
+    throw new Error("GITHUB_RATE_LIMIT");
+  }
+
+  if (!response.ok) {
+    throw new Error(`GitHub API request failed (${response.status}).`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function fetchRepositoryTree(
+  owner: string,
+  repository: string
+) {
+  const endpoint =
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
+
+  const repositoryData = await fetchGitHubJson<GitHubRepository>(
+    endpoint
+  );
+
+  const treeData = await fetchGitHubJson<GitHubTree>(
+    `${endpoint}/git/trees/${encodeURIComponent(repositoryData.default_branch)}?recursive=1`
+  );
+
+  return {
+    branch: repositoryData.default_branch,
+    isPrivate: repositoryData.private,
+    treeData,
+  };
+}
 
 function getExtension(path: string) {
   const match = path.match(/\.[^.]+$/);
@@ -130,20 +244,6 @@ function detectNodeType(
   return hasJsx && hasExportedComponent ? "component" : "module";
 }
 
-async function fetchGitHubJson<T>(endpoint: string): Promise<T> {
-  const response = await githubApiFetch(endpoint);
-
-  if (await isRateLimitResponse(response)) {
-    throw new Error("GITHUB_RATE_LIMIT");
-  }
-
-  if (!response.ok) {
-    throw new Error(`GitHub API request failed (${response.status}).`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 async function fetchSourceFile(
   owner: string,
   repository: string,
@@ -169,11 +269,7 @@ async function fetchSourceFile(
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    return response.text();
+    return response.ok ? response.text() : null;
   }
 
   const response = await githubApiFetch(
@@ -203,88 +299,173 @@ async function fetchSourceFile(
   ).toString("utf-8");
 }
 
+async function fetchSourceContents(
+  owner: string,
+  repository: string,
+  branch: string,
+  isPrivate: boolean,
+  sourceFiles: GitHubTreeItem[]
+) {
+  const contents = new Map<string, string>();
+
+  for (let index = 0; index < sourceFiles.length; index += BATCH_SIZE) {
+    const batch = sourceFiles.slice(index, index + BATCH_SIZE);
+
+    const results = await Promise.all(
+      batch.map(async (file) => ({
+        path: file.path,
+        content: await fetchSourceFile(
+          owner,
+          repository,
+          file.path,
+          branch,
+          file.sha,
+          isPrivate
+        ),
+      }))
+    );
+
+    for (const result of results) {
+      if (result.content !== null) {
+        contents.set(result.path, result.content);
+      }
+    }
+  }
+
+  return contents;
+}
+
+function buildArchitectureGraph(
+  contents: Map<string, string>,
+  availableFiles: Set<string>
+): ArchitectureGraph {
+  const nodes: ArchitectureNode[] = [];
+  const edges: ArchitectureEdge[] = [];
+  const edgeIds = new Set<string>();
+
+  for (const [path, content] of contents) {
+    const nodeType = detectNodeType(path, content);
+
+    nodes.push({
+      id: path,
+      label: path.split("/").pop() ?? path,
+      path,
+      type: nodeType,
+    });
+
+    const imports = getImportPaths(content);
+
+    for (const importPath of imports) {
+      const target = resolveImport(
+        importPath,
+        path,
+        availableFiles
+      );
+
+      if (!target || !contents.has(target)) {
+        continue;
+      }
+
+      const edgeId = `${path}->${target}`;
+
+      if (edgeIds.has(edgeId)) {
+        continue;
+      }
+
+      edgeIds.add(edgeId);
+
+      edges.push({
+        id: edgeId,
+        source: path,
+        target,
+      });
+    }
+  }
+
+  const totalComponents = nodes.filter(
+    (node) => node.type === "component"
+  ).length;
+
+  return { nodes, edges, totalComponents };
+}
+
+function createArchitectureResponse(
+  owner: string,
+  repository: string,
+  branch: string,
+  treeData: GitHubTree,
+  allSourceFiles: GitHubTreeItem[],
+  sourceFiles: GitHubTreeItem[],
+  graph: ArchitectureGraph
+) {
+  const { nodes, edges, totalComponents } = graph;
+
+  return NextResponse.json({
+    repository: {
+      owner,
+      name: repository,
+      branch,
+    },
+    nodes,
+    edges,
+    summary: {
+      totalFiles: sourceFiles.length,
+      analyzedFiles: nodes.length,
+      totalComponents,
+      totalModules: nodes.length - totalComponents,
+      totalConnections: edges.length,
+      truncated:
+        treeData.truncated ||
+        allSourceFiles.length > MAX_ANALYSIS_FILES,
+      maxFiles: MAX_ANALYSIS_FILES,
+    },
+  });
+}
+
+function createErrorResponse(error: unknown) {
+  if (
+    error instanceof Error &&
+    error.message === "GITHUB_RATE_LIMIT"
+  ) {
+    return NextResponse.json(
+      {
+        error: "GitHub API rate limit reached. Please try again later.",
+      },
+      { status: 429 }
+    );
+  }
+
+  console.error("Architecture analysis error:", error);
+
+  return NextResponse.json(
+    {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to analyze repository architecture.",
+    },
+    { status: 500 }
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
 
-    if (
-      typeof body !== "object" ||
-      body === null ||
-      !("repositoryUrl" in body) ||
-      typeof body.repositoryUrl !== "string"
-    ) {
-      return NextResponse.json(
-        { error: "A valid repository URL is required." },
-        { status: 400 }
-      );
-    }
-
-    let parsedUrl: URL;
-
-    try {
-      parsedUrl = new URL(body.repositoryUrl);
-    } catch {
-      return NextResponse.json(
-        { error: "The repository URL is invalid." },
-        { status: 400 }
-      );
-    }
-
-    if (
-      !["https:", "http:"].includes(parsedUrl.protocol) ||
-      !["github.com", "www.github.com"].includes(parsedUrl.hostname) ||
-      parsedUrl.port ||
-      parsedUrl.username ||
-      parsedUrl.password
-    ) {
-      return NextResponse.json(
-        { error: "Only GitHub repositories are supported." },
-        { status: 400 }
-      );
-    }
-
-    const segments = parsedUrl.pathname
-      .split("/")
-      .filter(Boolean);
-
-    if (
-      segments.length !== 2 ||
-      !/^[a-zA-Z0-9-]+$/.test(segments[0]) ||
-      !/^[a-zA-Z0-9_.-]+$/.test(segments[1])
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "The repository URL must include a valid owner and repository name.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const owner = segments[0];
-    const repository = segments[1].replace(/\.git$/i, "");
-
-    if (!repository) {
-      return NextResponse.json(
-        { error: "The repository name is invalid." },
-        { status: 400 }
-      );
-    }
-
-    const repositoryEndpoint =
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
-
-    const repositoryData =
-      await fetchGitHubJson<GitHubRepository>(repositoryEndpoint);
-
-    const branch = repositoryData.default_branch;
-
-    const treeData = await fetchGitHubJson<{
-      tree: GitHubTreeItem[];
-      truncated: boolean;
-    }>(
-      `${repositoryEndpoint}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+    const parsedRepository = parseRepositoryUrl(
+      typeof body === "object" && body !== null && "repositoryUrl" in body
+        ? body.repositoryUrl
+        : undefined
     );
+
+    if (parsedRepository instanceof NextResponse) {
+      return parsedRepository;
+    }
+
+    const { owner, repository } = parsedRepository;
+
+    const { branch, isPrivate, treeData } =
+      await fetchRepositoryTree(owner, repository);
 
     const allSourceFiles = treeData.tree.filter(
       (item) =>
@@ -301,129 +482,29 @@ export async function POST(request: Request) {
       sourceFiles.map((file) => file.path)
     );
 
-    const contents = new Map<string, string>();
-
-    for (
-      let index = 0;
-      index < sourceFiles.length;
-      index += BATCH_SIZE
-    ) {
-      const batch = sourceFiles.slice(
-        index,
-        index + BATCH_SIZE
-      );
-
-      const results = await Promise.all(
-        batch.map(async (file) => ({
-          path: file.path,
-          content: await fetchSourceFile(
-            owner,
-            repository,
-            file.path,
-            branch,
-            file.sha,
-            repositoryData.private
-          ),
-        }))
-      );
-
-      for (const result of results) {
-        if (result.content !== null) {
-          contents.set(result.path, result.content);
-        }
-      }
-    }
-
-    const nodes: ArchitectureNode[] = [];
-    const edges: ArchitectureEdge[] = [];
-    const edgeIds = new Set<string>();
-
-    for (const [path, content] of contents) {
-      const nodeType = detectNodeType(path, content);
-
-      nodes.push({
-        id: path,
-        label: path.split("/").pop() ?? path,
-        path,
-        type: nodeType,
-      });
-
-      const imports = getImportPaths(content);
-
-      for (const importPath of imports) {
-        const target = resolveImport(
-          importPath,
-          path,
-          availableFiles
-        );
-
-        if (!target || !contents.has(target)) {
-          continue;
-        }
-
-        const edgeId = `${path}->${target}`;
-
-        if (edgeIds.has(edgeId)) {
-          continue;
-        }
-
-        edgeIds.add(edgeId);
-
-        edges.push({
-          id: edgeId,
-          source: path,
-          target,
-        });
-      }
-    }
-
-    const totalComponents = nodes.filter(
-      (node) => node.type === "component"
-    ).length;
-
-    return NextResponse.json({
-      repository: {
-        owner,
-        name: repository,
-        branch,
-      },
-      nodes,
-      edges,
-      summary: {
-        totalFiles: sourceFiles.length,
-        analyzedFiles: nodes.length,
-        totalComponents,
-        totalModules: nodes.length - totalComponents,
-        totalConnections: edges.length,
-        truncated:
-          treeData.truncated ||
-          allSourceFiles.length > MAX_ANALYSIS_FILES,
-        maxFiles: MAX_ANALYSIS_FILES,
-      },
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "GITHUB_RATE_LIMIT"
-    ) {
-      return NextResponse.json(
-        {
-          error: "GitHub API rate limit reached. Please try again later.",
-        },
-        { status: 429 }
-      );
-    }
-
-    console.error("Architecture analysis error:", error);
-
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to analyze repository architecture.",
-      },
-      { status: 500 }
+    const contents = await fetchSourceContents(
+      owner,
+      repository,
+      branch,
+      isPrivate,
+      sourceFiles
     );
+
+    const graph = buildArchitectureGraph(
+      contents,
+      availableFiles
+    );
+
+    return createArchitectureResponse(
+      owner,
+      repository,
+      branch,
+      treeData,
+      allSourceFiles,
+      sourceFiles,
+      graph
+    );
+  } catch (error) {
+    return createErrorResponse(error);
   }
 }
