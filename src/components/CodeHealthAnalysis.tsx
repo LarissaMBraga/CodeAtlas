@@ -6,6 +6,7 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Code2,
   FileCode2,
   Gauge,
@@ -68,6 +69,9 @@ export default function CodeHealthAnalysis({
   const [severityFilter, setSeverityFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [showAllIssues, setShowAllIssues] = useState(false);
+  const [expandedIssues, setExpandedIssues] = useState<Set<string>>(
+    new Set()
+  );
 
   const filteredIssues = useMemo(() => {
     return data.issues.filter((issue) => {
@@ -183,6 +187,20 @@ export default function CodeHealthAnalysis({
       value: data.coverage.fetchFailedFiles,
     },
   ];
+
+  function toggleIssue(issueId: string) {
+    setExpandedIssues((current) => {
+      const next = new Set(current);
+
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+
+      return next;
+    });
+  }
 
   return (
     <section id="code-health" className="scroll-mt-6">
@@ -397,53 +415,163 @@ export default function CodeHealthAnalysis({
 
         <div className="mt-5 space-y-3">
           {visibleIssues.length > 0 ? (
-            visibleIssues.map((issue) => (
-              <div
-                key={issue.id}
-                className="rounded-lg border border-[#252530] bg-[#0d0c12] p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-md border px-2 py-1 text-[10px] font-medium uppercase ${severityStyles[issue.severity]}`}
-                  >
-                    {issue.severity}
-                  </span>
-                  <span className="text-[10px] text-[#777483]">
-                    {issue.category.replace(/-/g, " ")}
-                  </span>
-                </div>
+            visibleIssues.map((issue) => {
+              const isExpanded = expandedIssues.has(issue.id);
+              const detailsId = `issue-details-${issue.id}`;
 
-                <div className="mt-3 flex items-start gap-3">
-                  <AlertCircle
-                    size={16}
-                    className="mt-0.5 shrink-0 text-[#a98cff]"
-                  />
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-semibold text-[#e8e5f0]">
-                      {issue.title}
-                    </h4>
-                    <p className="mt-1 text-xs leading-5 text-[#92919f]">
-                      {issue.description}
-                    </p>
-                    <p className="mt-2 break-all text-[10px] text-[#a98cff]">
-                      {issue.file}:{issue.line}
-                    </p>
-                  </div>
-                </div>
+              return (
+                <article
+                  key={issue.id}
+                  className={`overflow-hidden rounded-lg border bg-[#0d0c12] transition-colors duration-200 ${
+                    isExpanded
+                      ? "border-[#9b7bff]/30"
+                      : "border-[#252530] hover:border-[#3a3548]"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 p-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-md border px-2 py-1 text-[10px] font-medium uppercase ${severityStyles[issue.severity]}`}
+                        >
+                          {issue.severity}
+                        </span>
+                        <span className="text-[10px] capitalize text-[#777483]">
+                          {issue.category.replace(/-/g, " ")}
+                        </span>
+                      </div>
 
-                <div className="mt-4 rounded-md border border-[#302d3b] bg-[#191720] px-3 py-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles size={13} className="text-[#b7a1ff]" />
-                    <span className="text-[10px] font-medium text-[#b7a1ff]">
-                      Recommendation
-                    </span>
+                      <h4 className="mt-2 text-xs font-semibold leading-5 text-[#e8e5f0]">
+                        {issue.title}
+                      </h4>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleIssue(issue.id)}
+                      aria-expanded={isExpanded}
+                      aria-controls={detailsId}
+                      aria-label={
+                        isExpanded
+                          ? `Collapse details for ${issue.title}`
+                          : `Expand details for ${issue.title}`
+                      }
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#302d3b] bg-[#191720] text-[#a98cff] transition-colors hover:border-[#9b7bff]/50 hover:bg-[#201c2b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b7bff]/60"
+                    >
+                      <ChevronDown
+                        size={16}
+                        className={`transition-transform duration-200 ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-[#c8c4d2]">
-                    {issue.recommendation}
-                  </p>
-                </div>
-              </div>
-            ))
+
+                  {isExpanded && (
+                    <div
+                      id={detailsId}
+                      className="border-t border-[#252530] px-4 pb-4 pt-4"
+                    >
+                      <div className="flex items-center gap-2 text-[11px] text-[#a98cff]">
+                        <FileCode2 size={13} />
+                        <span className="break-all">
+                          {issue.file}:{issue.line}
+                        </span>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center gap-2">
+                          <AlertCircle
+                            size={13}
+                            className="text-[#b7a1ff]"
+                          />
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#b7a1ff]">
+                            Description
+                          </span>
+                        </div>
+                        <p className="text-xs leading-5 text-[#aaa6b5]">
+                          {issue.description}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 overflow-hidden rounded-md border border-[#302d3b] bg-[#111019]">
+                        <div className="flex items-center gap-2 border-b border-[#302d3b] px-3 py-2">
+                          <Code2 size={13} className="text-[#b7a1ff]" />
+                          <span className="text-[10px] font-medium text-[#b7a1ff]">
+                            Code location
+                          </span>
+                          <span className="ml-auto text-[10px] text-[#777483]">
+                            Line {issue.line}
+                          </span>
+                        </div>
+
+                        {issue.codeSnippet ? (
+                          <div className="overflow-x-auto py-2">
+                            <pre className="min-w-max text-[11px] leading-6">
+                              {issue.codeSnippet.lines.map((line, index) => {
+                                const lineNumber =
+                                  issue.codeSnippet!.startLine + index;
+                                const isProblemLine =
+                                  lineNumber === issue.line;
+
+                                return (
+                                  <div
+                                    key={lineNumber}
+                                    className={`flex min-w-full ${
+                                      isProblemLine
+                                        ? "bg-[#9b7bff]/10"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span
+                                      className={`w-12 shrink-0 select-none px-3 text-right ${
+                                        isProblemLine
+                                          ? "font-semibold text-[#b7a1ff]"
+                                          : "text-[#625f70]"
+                                      }`}
+                                    >
+                                      {lineNumber}
+                                    </span>
+                                    <span
+                                      className={`border-l px-3 ${
+                                        isProblemLine
+                                          ? "border-[#b7a1ff] text-[#e8e5f0]"
+                                          : "border-transparent text-[#aaa6b5]"
+                                      }`}
+                                    >
+                                      {line || " "}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </pre>
+                          </div>
+                        ) : (
+                          <p className="px-3 py-4 text-xs text-[#777483]">
+                            Code snippet is unavailable for this location.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 rounded-md border border-[#9b7bff]/15 bg-[#9b7bff]/[0.05] px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles
+                            size={13}
+                            className="text-[#b7a1ff]"
+                          />
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#b7a1ff]">
+                            Recommendation
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-[#c8c4d2]">
+                          {issue.recommendation}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })
           ) : (
             <div className="rounded-lg border border-[#252530] bg-[#0d0c12] px-5 py-10 text-center">
               <CheckCircle2 size={22} className="mx-auto text-emerald-400" />
