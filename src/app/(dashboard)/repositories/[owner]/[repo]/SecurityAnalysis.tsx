@@ -39,6 +39,8 @@ type SecurityAnalysisProps = {
 type SeverityFilter = SecuritySeverity | "all";
 type CategoryFilter = SecurityCategory | "all";
 
+const INITIAL_FINDINGS_LIMIT = 3;
+
 const SEVERITY_CONFIG: Record<
   SecuritySeverity,
   {
@@ -386,6 +388,7 @@ export default function SecurityAnalysis({
   const [categoryFilter, setCategoryFilter] =
     useState<CategoryFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAllFindings, setShowAllFindings] = useState(false);
 
   const runAnalysis = useCallback(async () => {
     setLoading(true);
@@ -425,8 +428,8 @@ export default function SecurityAnalysis({
   }, [owner, repo, branch]);
 
   useEffect(() => {
-  void Promise.resolve().then(() => runAnalysis());
-}, [runAnalysis]);
+    void Promise.resolve().then(() => runAnalysis());
+  }, [runAnalysis]);
 
   const filteredFindings = useMemo(() => {
     if (!data) {
@@ -472,6 +475,10 @@ export default function SecurityAnalysis({
         );
       });
   }, [data, severityFilter, categoryFilter, searchQuery]);
+
+  const visibleFindings = showAllFindings
+    ? filteredFindings
+    : filteredFindings.slice(0, INITIAL_FINDINGS_LIMIT);
 
   const hasCriticalFindings =
     (data?.summary.criticalFindings ?? 0) > 0;
@@ -750,7 +757,10 @@ export default function SecurityAnalysis({
             <input
               type="search"
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setShowAllFindings(false);
+              }}
               placeholder="Search findings..."
               className="h-9 w-full rounded-lg border border-[#302d3b] bg-[#0d0d13] pl-9 pr-3 text-xs text-[#e8e6ef] outline-none placeholder:text-[#686574] focus:border-[#a98cff]/50"
             />
@@ -763,9 +773,10 @@ export default function SecurityAnalysis({
             />
             <select
               value={severityFilter}
-              onChange={(event) =>
-                setSeverityFilter(event.target.value as SeverityFilter)
-              }
+              onChange={(event) => {
+                setSeverityFilter(event.target.value as SeverityFilter);
+                setShowAllFindings(false);
+              }}
               className="h-9 w-full appearance-none rounded-lg border border-[#302d3b] bg-[#0d0d13] pl-9 pr-8 text-xs text-[#c3c0cc] outline-none focus:border-[#a98cff]/50"
             >
               <option value="all">All severities</option>
@@ -784,9 +795,10 @@ export default function SecurityAnalysis({
           <div className="relative">
             <select
               value={categoryFilter}
-              onChange={(event) =>
-                setCategoryFilter(event.target.value as CategoryFilter)
-              }
+              onChange={(event) => {
+                setCategoryFilter(event.target.value as CategoryFilter);
+                setShowAllFindings(false);
+              }}
               className="h-9 w-full appearance-none rounded-lg border border-[#302d3b] bg-[#0d0d13] px-3 pr-8 text-xs text-[#c3c0cc] outline-none focus:border-[#a98cff]/50"
             >
               <option value="all">All categories</option>
@@ -805,12 +817,37 @@ export default function SecurityAnalysis({
 
         <div className="mt-4 space-y-2">
           {filteredFindings.length > 0 ? (
-            filteredFindings.map((finding) => (
-              <FindingCard
-                key={finding.id}
-                finding={finding}
-              />
-            ))
+            <>
+              {visibleFindings.map((finding) => (
+                <FindingCard
+                  key={finding.id}
+                  finding={finding}
+                />
+              ))}
+
+              {filteredFindings.length > INITIAL_FINDINGS_LIMIT && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowAllFindings((current) => !current)
+                  }
+                  aria-expanded={showAllFindings}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#302d3b] bg-[#0d0d13] px-4 py-3 text-xs font-medium text-[#b7a1ff] transition-colors hover:border-[#a98cff]/40 hover:bg-[#191720] hover:text-[#d0c3ff]"
+                >
+                  {showAllFindings ? (
+                    <>
+                      Show less
+                      <ChevronUp size={14} />
+                    </>
+                  ) : (
+                    <>
+                      Show all findings ({filteredFindings.length})
+                      <ChevronDown size={14} />
+                    </>
+                  )}
+                </button>
+              )}
+            </>
           ) : (
             <div className="rounded-lg border border-dashed border-[#302d3b] px-4 py-10 text-center">
               {data.findings.length === 0 ? (
@@ -845,6 +882,7 @@ export default function SecurityAnalysis({
                       setSearchQuery("");
                       setSeverityFilter("all");
                       setCategoryFilter("all");
+                      setShowAllFindings(false);
                     }}
                     className="mt-3 text-[11px] font-medium text-[#b7a1ff] hover:text-[#d0c3ff]"
                   >
