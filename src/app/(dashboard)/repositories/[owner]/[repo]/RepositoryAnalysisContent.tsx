@@ -9,6 +9,7 @@ import ArchitectureGraph from "./ArchitectureGraph";
 import CodeExplorer from "./CodeExplorer";
 import LanguagesAnalysis from "./LanguagesAnalysis";
 import DependenciesAnalysis from "./DependenciesAnalysis";
+import SecurityAnalysis from "./SecurityAnalysis";
 import type { DependenciesAnalysisData } from "./dependencies-analysis-types";
 import type { RepositoryAnalysis } from "@/lib/github/repository-types";
 import RepositoryOverview from "@/components/RepositoryOverview";
@@ -64,7 +65,7 @@ const sections = [
   { name: "Languages", id: "languages", icon: Code2, status: "Available" },
   { name: "Dependencies", id: "dependencies", icon: Package, status: "Available" },
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Available" },
-  { name: "Security", id: "security", icon: ShieldCheck, status: "Coming soon" },
+  { name: "Security", id: "security", icon: ShieldCheck, status: "Available" },
   { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Coming soon" },
   { name: "AI Investigator", id: "ai-investigator", icon: Bot, status: "Coming soon" },
 ];
@@ -301,7 +302,8 @@ export default function RepositoryAnalysisContent() {
               section.id === "code-explorer" ||
               section.id === "languages" ||
               section.id === "dependencies" ||
-              section.id === "code-health";
+              section.id === "code-health" ||
+              section.id === "security";
 
             return (
               <a
@@ -427,6 +429,22 @@ export default function RepositoryAnalysisContent() {
               {!isCodeHealthLoading && !codeHealthError && codeHealthData && (
                 <CodeHealthAnalysis data={codeHealthData} />
               )}
+            </section>
+          );
+        }
+
+        if (section.id === "security") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <SecurityAnalysis
+                owner={owner}
+                repo={repo}
+                branch={repository.defaultBranch}
+              />
             </section>
           );
         }
