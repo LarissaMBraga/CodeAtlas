@@ -10,6 +10,7 @@ import LanguagesAnalysis from "./LanguagesAnalysis";
 import DependenciesAnalysis from "./DependenciesAnalysis";
 import SecurityAnalysis from "./SecurityAnalysis";
 import ImpactAnalysis from "./ImpactAnalysis";
+import AIInvestigator from "./AIInvestigator";
 import type { DependenciesAnalysisData } from "./dependencies-analysis-types";
 import type { RepositoryAnalysis } from "@/lib/github/repository-types";
 import RepositoryOverview from "@/components/RepositoryOverview";
@@ -67,7 +68,7 @@ const sections = [
   { name: "Code Health", id: "code-health", icon: HeartPulse, status: "Available" },
   { name: "Security", id: "security", icon: ShieldCheck, status: "Available" },
   { name: "Impact Analysis", id: "impact-analysis", icon: GitPullRequest, status: "Available" },
-  { name: "AI Investigator", id: "ai-investigator", icon: Bot, status: "Coming soon" },
+  { name: "AI Investigator", id: "ai-investigator", icon: Bot, status: "Available" },
 ];
 
 export default function RepositoryAnalysisContent() {
@@ -304,7 +305,8 @@ export default function RepositoryAnalysisContent() {
               section.id === "dependencies" ||
               section.id === "code-health" ||
               section.id === "security" ||
-              section.id === "impact-analysis";
+              section.id === "impact-analysis" ||
+              section.id === "ai-investigator";
 
             return (
               <a
@@ -458,6 +460,22 @@ export default function RepositoryAnalysisContent() {
               className="mt-8 scroll-mt-6"
             >
               <ImpactAnalysis
+                owner={owner}
+                repo={repo}
+                branch={repository.defaultBranch}
+              />
+            </section>
+          );
+        }
+
+        if (section.id === "ai-investigator") {
+          return (
+            <section
+              key={section.id}
+              id={section.id}
+              className="mt-8 scroll-mt-6"
+            >
+              <AIInvestigator
                 owner={owner}
                 repo={repo}
                 branch={repository.defaultBranch}
