@@ -198,6 +198,27 @@ function countLines(content: string) {
   return content.length === 0 ? 0 : content.split(/\r?\n/).length;
 }
 
+function getCodeSnippet(content: string, line: number) {
+  if (!content || line < 1) {
+    return undefined;
+  }
+
+  const lines = content.split(/\r?\n/);
+
+  if (line > lines.length) {
+    return undefined;
+  }
+
+  const targetIndex = line - 1;
+  const startIndex = Math.max(0, targetIndex - 2);
+  const endIndex = Math.min(lines.length, targetIndex + 3);
+
+  return {
+    startLine: startIndex + 1,
+    lines: lines.slice(startIndex, endIndex),
+  };
+}
+
 function addIssue(
   issues: Issue[],
   file: string,
@@ -1445,6 +1466,16 @@ function buildCodeHealthResult(
   const { analyzedFiles } = analysis;
   const issues = analyzedFiles.flatMap((file) => file.issues);
   const duplicates = addDuplicateIssues(issues, analyzedFiles);
+  const contentByPath = new Map(
+    analyzedFiles.map((file) => [file.path, file.content])
+  );
+  const issuesWithSnippets = issues.map((issue) => ({
+    ...issue,
+    codeSnippet: getCodeSnippet(
+      contentByPath.get(issue.file) ?? "",
+      issue.line
+    ),
+  }));
   const functions = analyzedFiles.flatMap((file) => file.functions);
   const totalLines = analyzedFiles.reduce(
     (sum, file) => sum + file.lines,
@@ -1472,7 +1503,7 @@ function buildCodeHealthResult(
       duplicates,
       totalLines
     ),
-    issues,
+    issues: issuesWithSnippets,
     functions: functions.sort(
       (a, b) => b.complexity - a.complexity
     ),

@@ -1,5 +1,10 @@
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
+export type CodeSnippet = {
+  startLine: number;
+  lines: string[];
+};
+
 export type Issue = {
   id: string;
   category: string;
@@ -9,6 +14,7 @@ export type Issue = {
   file: string;
   line: number;
   recommendation: string;
+  codeSnippet?: CodeSnippet;
 };
 
 export type FunctionMetric = {
