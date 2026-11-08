@@ -1,3 +1,4 @@
+
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
@@ -106,9 +107,10 @@ describe("analyzeSecrets", () => {
   });
 
   it("preserves AWS access key detection", () => {
+    const accessKey = ["AKIA", "QWERTYUIOPASDFGH"].join("");
     const file = createFile(
       "src/config.ts",
-      'const accessKey = "AKIAQWERTYUIOPASDFGH";',
+      `const accessKey = "${accessKey}";`,
     );
 
     const findings = analyzeSecrets([file]);
