@@ -1,4 +1,6 @@
 
+import { createPrivateKey } from "node:crypto";
+
 import type {
   SecurityConfidence,
   SecurityFinding,
@@ -58,10 +60,11 @@ const SECRET_RULES: SecretRule[] = [
     id: "SECRET_PRIVATE_KEY",
     title: "Private key exposed",
     description:
-      "A private key header was found in a tracked file.",
+      "A structurally valid private key was found in a tracked file.",
     severity: "critical",
     confidence: "high",
-    pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g,
+    pattern:
+      /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g,
     recommendation:
       "Remove the private key from the repository, revoke or rotate the associated credentials, and use a secure key management system.",
     references: [
@@ -79,7 +82,8 @@ const SECRET_RULES: SecretRule[] = [
       "A value matching the structure of a JSON Web Token was found in a tracked file.",
     severity: "high",
     confidence: "medium",
-    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+    pattern:
+      /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     recommendation:
       "Verify whether the token is active. If it is, revoke it and avoid storing authentication tokens in source code.",
     references: [
@@ -98,7 +102,7 @@ const SECRET_RULES: SecretRule[] = [
     severity: "high",
     confidence: "medium",
     pattern:
-      /\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*["'`]([^"'`\r\n]{8,})["'`]/gi,
+      /\b(?:password|passwd|secret|api[\_-]?key|access[\_-]?token|auth[\_-]?token|client[\_-]?secret)\b\s*[:=]\s*["'`]([^"'`\r\n]{8,})["'`]/gi,
     recommendation:
       "Move the credential into a secure environment variable or secret manager. Rotate it if it is a real credential.",
     references: [
@@ -120,7 +124,9 @@ function maskSecret(value: string): string {
     return "*".repeat(value.length);
   }
 
-  return `${value.slice(0, 4)}${"*".repeat(Math.min(value.length - 8, 16))}${value.slice(-4)}`;
+  return `${value.slice(0, 4)}${"*".repeat(
+    Math.min(value.length - 8, 16),
+  )}${value.slice(-4)}`;
 }
 
 function maskLine(line: string, secret: string): string {
@@ -159,9 +165,7 @@ function isLikelyPlaceholder(value: string): boolean {
 function isCommentLine(line: string, filePath: string): boolean {
   const trimmed = line.trim();
 
-  if (
-    /\.(py|sh|bash|rb)$/i.test(filePath)
-  ) {
+  if (/\.(py|sh|bash|rb)$/i.test(filePath)) {
     return trimmed.startsWith("#");
   }
 
@@ -171,6 +175,72 @@ function isCommentLine(line: string, filePath: string): boolean {
     trimmed.startsWith("<!--") ||
     trimmed.startsWith("/*")
   );
+}
+
+function isValidPrivateKeyBlock(
+  content: string,
+  startIndex: number,
+): boolean {
+  const remaining = content.slice(startIndex);
+
+  const headerMatch = remaining.match(
+    /^-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[ \t]*\r?\n/,
+  );
+
+  if (!headerMatch) {
+    return false;
+  }
+
+  const keyType = headerMatch[1] ?? "";
+  const endMarker = `-----END ${keyType}PRIVATE KEY-----`;
+
+  const bodyStart = headerMatch[0].length;
+  const endIndex = remaining.indexOf(endMarker, bodyStart);
+
+  if (endIndex === -1) {
+    return false;
+  }
+
+  const encodedBody = remaining
+    .slice(bodyStart, endIndex)
+    .replace(/\s/g, "");
+
+  if (
+    !encodedBody ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(encodedBody)
+  ) {
+    return false;
+  }
+
+  const decodedBody = Buffer.from(encodedBody, "base64");
+
+  if (
+    decodedBody.length === 0 ||
+    decodedBody.toString("base64") !== encodedBody
+  ) {
+    return false;
+  }
+
+  if (keyType === "OPENSSH ") {
+    return (
+      decodedBody
+        .subarray(0, 15)
+        .toString("utf8") === "openssh-key-v1\0" &&
+      decodedBody.length > 64
+    );
+  }
+
+  const privateKeyPem = remaining.slice(
+    0,
+    endIndex + endMarker.length,
+  );
+
+  try {
+    createPrivateKey(privateKeyPem);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function createFinding(
@@ -233,6 +303,7 @@ export function analyzeSecrets(
         );
 
         const line = lines[lineNumber - 1] ?? "";
+
         const matchedValue =
           rule.id === "SECRET_GENERIC_ASSIGNMENT"
             ? match[1]
@@ -241,6 +312,13 @@ export function analyzeSecrets(
         if (
           isCommentLine(line, file.path) ||
           isLikelyPlaceholder(matchedValue)
+        ) {
+          continue;
+        }
+
+        if (
+          rule.id === "SECRET_PRIVATE_KEY" &&
+          !isValidPrivateKeyBlock(file.content, match.index)
         ) {
           continue;
         }
