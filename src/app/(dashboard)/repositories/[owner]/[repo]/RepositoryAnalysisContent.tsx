@@ -118,13 +118,37 @@ export default function RepositoryAnalysisContent() {
           );
         }
 
-        if (isMounted) {
+                if (isMounted) {
           setRepository(result.repository);
           setFiles(result.files || []);
           setAnalysis(result.analysis || null);
           setLanguages(result.languages || []);
           setLanguageAnalysis(result.languageAnalysis || null);
           setDependenciesAnalysis(result.dependenciesAnalysis || null);
+
+          void fetch("/api/recent-repositories", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              owner: result.repository.owner.username,
+              name: result.repository.name,
+              repositoryFullName: result.repository.fullName,
+              repositoryUrl: result.repository.url,
+              description: result.repository.description,
+              avatarUrl: result.repository.owner.avatarUrl,
+              language: result.repository.language,
+              stars: result.repository.stars,
+              forks: result.repository.forks,
+              defaultBranch: result.repository.defaultBranch,
+            }),
+          }).catch((historyError) => {
+            console.error(
+              "[Recent Repositories] Unable to record repository:",
+              historyError
+            );
+          });
         }
       } catch (loadError) {
         if (isMounted) {
