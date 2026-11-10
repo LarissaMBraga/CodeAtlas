@@ -97,6 +97,7 @@ export default function DashboardSidebar() {
                     <Link
                       key={item.href}
                       href={item.href}
+                      aria-current={active ? "page" : undefined}
                       className={`group flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] transition ${
                         active
                           ? "border border-[#9b7bff]/20 bg-[#9b7bff]/10 font-medium text-[#c5b5ff]"
@@ -144,13 +145,25 @@ export default function DashboardSidebar() {
           Settings
         </button>
 
-        <button
-          type="button"
-          className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#92919f] transition hover:bg-white/[0.04] hover:text-white"
+        <Link
+          href="/help"
+          aria-current={pathname === "/help" ? "page" : undefined}
+          className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] transition ${
+            pathname === "/help"
+              ? "border border-[#9b7bff]/20 bg-[#9b7bff]/10 font-medium text-[#c5b5ff]"
+              : "text-[#92919f] hover:bg-white/[0.04] hover:text-white"
+          }`}
         >
-          <CircleHelp size={17} className="text-[#777483]" />
+          <CircleHelp
+            size={17}
+            className={
+              pathname === "/help"
+                ? "text-[#b7a1ff]"
+                : "text-[#777483]"
+            }
+          />
           Help & Support
-        </button>
+        </Link>
 
         <button
           type="button"
