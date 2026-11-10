@@ -1,20 +1,37 @@
 "use client";
 
 import { ChevronRight, Bell, Search } from "lucide-react";
+import { usePathname } from "next/navigation";
 import {
   ProfileAvatar,
   useProfile,
 } from "@/components/dashboard/profile/ProfileProvider";
 
+const pageLabels: Record<string, string> = {
+  "/overview": "Overview",
+  "/repositories": "Repositories",
+  "/architecture": "Architecture Map",
+  "/investigator": "AI Investigator",
+  "/impact": "Impact Analysis",
+  "/code-health": "Code Health",
+  "/recent-projects": "Recent Projects",
+  "/help": "Help & Support",
+};
+
 export default function DashboardHeader() {
+  const pathname = usePathname();
   const { profile, toggleMenu, openAnchor } = useProfile();
+
+  const currentPage = pathname.startsWith("/repositories/")
+    ? "Repository Analysis"
+    : pageLabels[pathname] || "Workspace";
 
   return (
     <header className="flex h-[76px] items-center justify-between border-b border-[#252530] px-6 sm:px-8">
       <div className="flex items-center gap-2 text-xs">
         <span className="text-[#777483]">Workspace</span>
         <ChevronRight size={13} className="text-[#555260]" />
-        <span className="font-medium text-white">Overview</span>
+        <span className="font-medium text-white">{currentPage}</span>
       </div>
 
       <div className="flex items-center gap-3">
