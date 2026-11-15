@@ -10,11 +10,10 @@ import {
   GitBranch,
   HeartPulse,
   ShieldCheck,
-  Clock3,
-  Settings,
   CircleHelp,
   ChevronLeft,
   Sparkles,
+  Settings,
 } from "lucide-react";
 import {
   ProfileAvatar,
@@ -125,31 +124,9 @@ export default function DashboardSidebar() {
             </div>
           ))}
         </nav>
-
-        <div className="mt-8">
-          <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.16em] text-[#656270]">
-            HISTORY
-          </p>
-
-          <Link
-            href="/recent-projects"
-            className="flex h-10 items-center gap-3 rounded-lg px-3 text-[13px] text-[#92919f] transition hover:bg-white/[0.04] hover:text-white"
-          >
-            <Clock3 size={17} className="text-[#777483]" />
-            Recent Projects
-          </Link>
-        </div>
       </div>
 
       <div className="space-y-1 border-t border-[#252530] p-4">
-        <button
-          type="button"
-          className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-[13px] text-[#92919f] transition hover:bg-white/[0.04] hover:text-white"
-        >
-          <Settings size={17} className="text-[#777483]" />
-          Settings
-        </button>
-
         <Link
           href="/help"
           aria-current={pathname === "/help" ? "page" : undefined}
