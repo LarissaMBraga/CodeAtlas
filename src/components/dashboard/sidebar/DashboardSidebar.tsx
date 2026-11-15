@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -6,10 +7,9 @@ import {
   Network,
   LayoutDashboard,
   FolderGit2,
-  Workflow,
-  Bot,
   GitBranch,
   HeartPulse,
+  ShieldCheck,
   Clock3,
   Settings,
   CircleHelp,
@@ -27,13 +27,16 @@ const navigation = [
     items: [
       { name: "Overview", href: "/overview", icon: LayoutDashboard },
       { name: "Repositories", href: "/repositories", icon: FolderGit2 },
-      { name: "Architecture Map", href: "/architecture", icon: Workflow },
     ],
   },
   {
     label: "CODE INTELLIGENCE",
     items: [
-      { name: "AI Investigator", href: "/investigator", icon: Bot },
+      {
+        name: "Security Analysis",
+        href: "/security",
+        icon: ShieldCheck,
+      },
       { name: "Impact Analysis", href: "/impact", icon: GitBranch },
       { name: "Code Health", href: "/code-health", icon: HeartPulse },
     ],
@@ -91,7 +94,9 @@ export default function DashboardSidebar() {
               <div className="space-y-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
-                  const active = pathname === item.href;
+                  const active =
+                    pathname === item.href ||
+                    pathname.startsWith(`${item.href}/`);
 
                   return (
                     <Link
