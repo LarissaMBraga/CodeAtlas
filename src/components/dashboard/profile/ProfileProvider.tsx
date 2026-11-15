@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -35,10 +36,12 @@ type ProfileContextValue = {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 function getString(...values: unknown[]) {
-  return values.find(
-    (value): value is string =>
-      typeof value === "string" && value.trim().length > 0
-  )?.trim() ?? "";
+  return (
+    values.find(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0
+    )?.trim() ?? ""
+  );
 }
 
 function getInitials(name: string) {
@@ -87,13 +90,14 @@ export function ProfileAvatar({
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [openAnchor, setOpenAnchor] = useState<ProfileAnchor | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState("");
+  const [supabase, setSupabase] = useState<
+    ReturnType<typeof createSupabaseBrowserClient> | null
+  >(null);
 
   const closeMenu = useCallback(() => {
     setOpenAnchor(null);
@@ -106,6 +110,22 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    try {
+      const client = createSupabaseBrowserClient();
+      setSupabase(client);
+    } catch {
+      setProfile(null);
+      setIsLoading(false);
+      setError("Unable to initialize your account. Please try again later.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (supabase === null) {
+      return;
+    }
+
+    const client = supabase;
     let active = true;
 
     async function loadProfile() {
@@ -113,7 +133,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         const {
           data: { user },
           error: userError,
-        } = await supabase.auth.getUser();
+        } = await client.auth.getUser();
 
         if (userError || !user) {
           if (active) {
@@ -122,16 +142,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-       const { data: identities, error: identitiesError } =
-  await supabase.auth.getUserIdentities();
+        const {
+          data: identities,
+          error: identitiesError,
+        } = await client.auth.getUserIdentities();
 
-if (identitiesError) {
-  throw identitiesError;
-}
+        if (identitiesError) {
+          throw identitiesError;
+        }
 
-const githubIdentity = identities?.identities?.find(
-  (identity) => identity.provider === "github"
-);
+        const githubIdentity = identities?.identities?.find(
+          (identity) => identity.provider === "github"
+        );
 
         const metadata = user.user_metadata ?? {};
 
@@ -179,7 +201,7 @@ const githubIdentity = identities?.identities?.find(
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = client.auth.onAuthStateChange((_event, session) => {
       if (!session) {
         setProfile(null);
         setOpenAnchor(null);
@@ -197,11 +219,18 @@ const githubIdentity = identities?.identities?.find(
   }, [supabase]);
 
   const signOut = useCallback(async () => {
+    const client = supabase;
+
+    if (client === null) {
+      setError("Unable to initialize your account. Please try again later.");
+      return;
+    }
+
     setIsSigningOut(true);
     setError("");
 
     try {
-      const { error: signOutError } = await supabase.auth.signOut();
+      const { error: signOutError } = await client.auth.signOut();
 
       if (signOutError) {
         throw signOutError;
@@ -340,10 +369,7 @@ function ProfileMenu({
         </div>
 
         <div className="flex items-center gap-3 rounded-lg border border-[#252530] bg-white/[0.02] p-3">
-          <ProfileAvatar
-            profile={profile}
-            size="h-11 w-11"
-          />
+          <ProfileAvatar profile={profile} size="h-11 w-11" />
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">
