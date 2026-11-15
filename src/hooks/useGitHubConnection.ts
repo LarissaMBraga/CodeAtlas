@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -13,6 +14,7 @@ export function useGitHubConnection() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [error, setError] = useState("");
   const [profile, setProfile] = useState<GitHubProfile | null>(null);
 
@@ -20,6 +22,23 @@ export function useGitHubConnection() {
     async function loadGitHubProfile() {
       try {
         const supabase = createSupabaseBrowserClient();
+
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError) {
+          throw userError;
+        }
+
+        if (!user) {
+          setIsAuthenticated(false);
+          setProfile(null);
+          return;
+        }
+
+        setIsAuthenticated(true);
 
         const { data, error: identitiesError } =
           await supabase.auth.getUserIdentities();
@@ -52,7 +71,7 @@ export function useGitHubConnection() {
           avatarUrl: identityData.avatar_url || "",
         });
       } catch {
-        setError("Unable to check your GitHub connection.");
+        setError("Unable to check your account connection.");
       } finally {
         setIsLoading(false);
       }
@@ -169,6 +188,7 @@ export function useGitHubConnection() {
     profile,
     error,
     isLoading,
+    isAuthenticated,
     isConnecting,
     isDisconnecting,
     connect,

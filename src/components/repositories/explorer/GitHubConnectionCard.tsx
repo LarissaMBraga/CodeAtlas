@@ -1,5 +1,7 @@
+
 "use client";
 
+import Link from "next/link";
 import { Code2, LoaderCircle, Unlink } from "lucide-react";
 import { useGitHubConnection } from "@/hooks/useGitHubConnection";
 import {
@@ -16,6 +18,7 @@ export default function GitHubConnectionCard() {
     isConnecting,
     isDisconnecting,
     isLoading,
+    isAuthenticated,
     error,
     profile,
     connect,
@@ -72,6 +75,34 @@ export default function GitHubConnectionCard() {
               </>
             )}
           </button>
+        </div>
+      ) : !isAuthenticated ? (
+        <div className="mt-6 rounded-lg border border-[#302d3b] bg-[#191720] p-5">
+          <p className="text-sm font-semibold text-white">
+            Create an account to connect GitHub
+          </p>
+
+          <p className="mt-2 text-xs leading-5 text-[#92919f]">
+            Sign up for CODE ATLAS to link your GitHub account and access your
+            repositories.
+          </p>
+
+          <Link
+            href="/register"
+            className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#9b7bff] px-4 text-sm font-semibold text-white transition hover:bg-[#8966f0] sm:w-auto"
+          >
+            Create account
+          </Link>
+
+          <p className="mt-3 text-[11px] text-[#777483]">
+            Already have an account?{" "}
+            <Link
+              href="/login"
+              className="font-medium text-[#b7a1ff] transition hover:text-white"
+            >
+              Sign in
+            </Link>
+          </p>
         </div>
       ) : (
         <>

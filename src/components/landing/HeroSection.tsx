@@ -1,3 +1,4 @@
+
 import Link from "next/link";
 import { ArrowRight, GitBranch, Sparkles } from "lucide-react";
 import ArchitecturePreview from "./ArchitecturePreview";
@@ -33,7 +34,7 @@ export default function HeroSection() {
 
         <div className="mx-auto mt-10 flex max-w-[540px] flex-col gap-3 sm:flex-row">
           <Link
-            href="/overview"
+            href="/repositories"
             className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#a184ff] px-6 py-4 text-sm font-semibold text-[#100c1b] shadow-[0_0_35px_rgba(155,123,255,0.18)] transition hover:-translate-y-0.5 hover:bg-[#b69fff]"
           >
             Explore your codebase
